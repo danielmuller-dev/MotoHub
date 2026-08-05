@@ -75,21 +75,21 @@ export default async function MotorcyclesPage({
           <CardHeader title="Cadastrar moto" description="Placa, Renavam e chassi nao podem repetir na empresa." />
           <CardContent>
             <form action={createMotorcycleAction} className="grid gap-4">
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="Marca" name="brand" required />
                 <Field label="Modelo" name="model" required />
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="form-grid-3">
                 <Field label="Ano fabricacao" name="manufactureYear" type="number" />
                 <Field label="Ano modelo" name="modelYear" type="number" />
                 <Field label="Cor" name="color" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="form-grid-3">
                 <Field label="Placa" name="plate" placeholder="ABC1D23" required />
                 <Field label="Renavam" name="renavam" />
                 <Field label="Chassi" name="chassis" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="form-grid-3">
                 <Field label="Cilindrada" name="engineCapacity" type="number" />
                 <Field label="Quilometragem atual" name="currentMileage" type="number" defaultValue={0} />
                 <Field label="Valor de aquisicao" name="acquisitionValue" type="number" step="0.01" />

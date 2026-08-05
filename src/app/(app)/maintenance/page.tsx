@@ -57,15 +57,15 @@ export default async function MaintenancePage() {
                 ))}
               </SelectField>
               <Field label="Descricao" name="description" required />
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="Data" name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
                 <Field label="Quilometragem" name="mileage" type="number" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="Valor" name="amount" type="number" step="0.01" defaultValue={0} />
                 <Field label="Oficina/responsavel" name="workshop" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="Proxima manutencao" name="nextMaintenanceDate" type="date" />
                 <Field label="Proxima km" name="nextMaintenanceMileage" type="number" />
               </div>

@@ -77,36 +77,36 @@ export default async function CustomersPage({
           <CardContent>
             <form action={createCustomerAction} className="grid gap-4">
               <Field label="Nome completo" name="fullName" required />
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="CPF" name="cpf" placeholder="000.000.000-00" required />
                 <Field label="Nascimento" name="birthDate" type="date" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="E-mail" name="email" type="email" />
                 <Field label="Senha para area do cliente" name="accessPassword" type="password" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="Telefone" name="phone" placeholder="(71) 99999-9999" />
                 <Field label="WhatsApp" name="whatsapp" placeholder="(71) 99999-9999" />
               </div>
               <Field label="Endereco" name="address" />
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="form-grid-3">
                 <Field label="Numero" name="number" />
                 <Field label="Bairro" name="district" />
                 <Field label="CEP" name="zipCode" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="form-grid-3">
                 <Field label="Cidade" name="city" />
                 <Field label="Estado" name="state" placeholder="BA" />
                 <Field label="Complemento" name="complement" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="form-grid-3">
                 <Field label="CNH" name="driverLicenseNumber" />
                 <Field label="Categoria" name="driverLicenseCategory" />
                 <Field label="Validade CNH" name="driverLicenseExpiration" type="date" />
               </div>
               <Field label="Identidade" name="identityNumber" />
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="form-grid-2">
                 <Field label="Contato de emergencia" name="emergencyContactName" />
                 <Field label="Telefone emergencia" name="emergencyContactPhone" />
               </div>

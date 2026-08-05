@@ -1,5 +1,6 @@
+import "dotenv/config";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { hash } from "bcryptjs";
+import bcrypt from "bcryptjs";
 import {
   BillingFrequency,
   MonthlyOverflowRule,
@@ -188,7 +189,7 @@ async function main() {
     await resetDemoCompany(existingCompany.id);
   }
 
-  const passwordHash = await hash(demoPassword, 12);
+  const passwordHash = await bcrypt.hash(demoPassword, 12);
 
   await prisma.user.upsert({
     where: { email: "admin@motogestor.demo" },

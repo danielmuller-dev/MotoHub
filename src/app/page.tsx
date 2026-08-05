@@ -92,10 +92,10 @@ export default async function LandingPage() {
               Entrar
             </Link>
             <Link
-              href="/login?demo=1"
+              href="/saiba-mais"
               className="hidden h-10 items-center justify-center rounded-md bg-asphalt px-4 text-sm font-medium text-white hover:bg-graphite sm:inline-flex"
             >
-              Ver demo
+              Saiba mais
             </Link>
           </div>
         </div>
@@ -118,10 +118,10 @@ export default async function LandingPage() {
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/login"
+                href="/saiba-mais"
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-asphalt px-5 text-sm font-semibold text-white hover:bg-graphite"
               >
-                Acessar painel
+                Saiba mais
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Link>
               <Link

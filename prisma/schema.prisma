@@ -1,0 +1,516 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  EMPLOYEE
+  CUSTOMER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CompanyStatus {
+  ACTIVE
+  INACTIVE
+  TRIAL
+  BLOCKED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MotorcycleStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  BLOCKED
+  SOLD
+  INACTIVE
+}
+
+enum ContractType {
+  RENTAL
+  RENT_TO_OWN
+}
+
+enum BillingFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum WeekDay {
+  SUNDAY
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
+enum MonthlyOverflowRule {
+  LAST_VALID_DAY
+  NEXT_MONTH_FIRST_DAY
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  OVERDUE
+  SUSPENDED
+  COMPLETED
+  CANCELLED
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PARTIALLY_PAID
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PIX
+  CASH
+  TRANSFER
+  CARD
+  BOLETO
+  OTHER
+}
+
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  OIL_CHANGE
+  TIRES
+  BRAKES
+  CHAIN
+  ELECTRICAL
+  INSPECTION
+  OTHER
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DocumentType {
+  CNH
+  CRLV
+  SIGNED_CONTRACT
+  PROOF_OF_ADDRESS
+  PERSONAL_DOCUMENT
+  INSURANCE
+  INSPECTION
+  OTHER
+}
+
+enum DocumentStatus {
+  VALID
+  EXPIRING_SOON
+  EXPIRED
+  ARCHIVED
+}
+
+enum NotificationType {
+  PAYMENT
+  MAINTENANCE
+  DOCUMENT
+  CONTRACT
+  GENERAL
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Company {
+  id                 String              @id @default(cuid())
+  legalName          String
+  tradeName          String?
+  document           String?
+  email              String?
+  phone              String?
+  whatsapp           String?
+  address            String?
+  city               String?
+  state              String?
+  zipCode            String?
+  logoUrl            String?
+  slug               String              @unique
+  status             CompanyStatus       @default(ACTIVE)
+  subscriptionStatus String?             @default("trial")
+  trialEndsAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
+
+  settings      CompanySettings?
+  users         User[]
+  customers     Customer[]
+  motorcycles   Motorcycle[]
+  contracts     Contract[]
+  installments  Installment[]
+  payments      Payment[]
+  maintenances  Maintenance[]
+  documents     Document[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CompanySettings {
+  id                     String   @id @default(cuid())
+  companyId              String   @unique
+  currency               String   @default("BRL")
+  timezone               String   @default("America/Bahia")
+  receiptDefaultText     String?
+  defaultLateFee         Decimal  @default(0) @db.Decimal(10, 2)
+  defaultInterest        Decimal  @default(0) @db.Decimal(10, 2)
+  defaultGracePeriodDays Int      @default(0)
+  displayPreferences     Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+}
+
+model User {
+  id           String     @id @default(cuid())
+  companyId    String?
+  customerId   String?    @unique
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         UserRole
+  status       UserStatus @default(ACTIVE)
+  phone        String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  company             Company?                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer            Customer?               @relation("CustomerUser", fields: [customerId], references: [id], onDelete: SetNull)
+  paymentsRegistered  Payment[]               @relation("PaymentRegisteredBy")
+  notificationsCreated Notification[]          @relation("NotificationCreatedBy")
+  auditLogs           AuditLog[]
+
+  @@index([companyId, role])
+  @@index([status])
+}
+
+model Customer {
+  id                         String         @id @default(cuid())
+  companyId                  String
+  fullName                   String
+  cpf                        String
+  birthDate                  DateTime?
+  email                      String?
+  phone                      String?
+  whatsapp                   String?
+  address                    String?
+  number                     String?
+  complement                 String?
+  district                   String?
+  city                       String?
+  state                      String?
+  zipCode                    String?
+  driverLicenseNumber        String?
+  driverLicenseCategory      String?
+  driverLicenseExpiration    DateTime?
+  identityNumber             String?
+  emergencyContactName       String?
+  emergencyContactPhone      String?
+  notes                      String?
+  status                     CustomerStatus @default(ACTIVE)
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+  deletedAt                  DateTime?
+
+  company          Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user             User?                    @relation("CustomerUser")
+  currentMotorcycles Motorcycle[]           @relation("CurrentMotorcycleCustomer")
+  contracts        Contract[]
+  payments         Payment[]
+  documents        Document[]
+  notificationRecipients NotificationRecipient[]
+
+  @@unique([companyId, cpf])
+  @@unique([companyId, email])
+  @@index([companyId, fullName])
+  @@index([companyId, status])
+}
+
+model Motorcycle {
+  id                String            @id @default(cuid())
+  companyId         String
+  currentCustomerId String?
+  brand             String
+  model             String
+  manufactureYear   Int?
+  modelYear         Int?
+  plate             String
+  renavam           String?
+  chassis           String?
+  color             String?
+  engineCapacity    Int?
+  currentMileage    Int              @default(0)
+  acquisitionValue  Decimal?         @db.Decimal(12, 2)
+  acquisitionDate   DateTime?
+  photoUrl          String?
+  notes             String?
+  status            MotorcycleStatus @default(AVAILABLE)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
+
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  currentCustomer Customer?    @relation("CurrentMotorcycleCustomer", fields: [currentCustomerId], references: [id], onDelete: SetNull)
+  contracts       Contract[]
+  maintenances    Maintenance[]
+  documents       Document[]
+
+  @@unique([companyId, plate])
+  @@unique([companyId, renavam])
+  @@unique([companyId, chassis])
+  @@index([companyId, status])
+  @@index([companyId, brand, model])
+}
+
+model Contract {
+  id                   String              @id @default(cuid())
+  companyId            String
+  customerId           String
+  motorcycleId         String
+  code                 String
+  type                 ContractType
+  startDate            DateTime
+  expectedEndDate      DateTime?
+  billingFrequency     BillingFrequency
+  firstDueDate         DateTime
+  weeklyDueDay         WeekDay?
+  monthlyDueDay        Int?
+  monthlyOverflowRule  MonthlyOverflowRule @default(LAST_VALID_DAY)
+  installmentAmount    Decimal             @db.Decimal(12, 2)
+  totalInstallments    Int
+  downPayment          Decimal             @default(0) @db.Decimal(12, 2)
+  totalAmount          Decimal             @db.Decimal(12, 2)
+  lateInterestAmount   Decimal             @default(0) @db.Decimal(12, 2)
+  lateFeeAmount        Decimal             @default(0) @db.Decimal(12, 2)
+  gracePeriodDays      Int                 @default(0)
+  initialMileage       Int?
+  mileageLimit         Int?
+  depositAmount        Decimal?            @db.Decimal(12, 2)
+  notes                String?
+  customTerms          String?
+  status               ContractStatus      @default(DRAFT)
+  activatedAt          DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  deletedAt            DateTime?
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  motorcycle   Motorcycle    @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  installments Installment[]
+  payments     Payment[]
+  documents    Document[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+  @@index([companyId, motorcycleId])
+}
+
+model Installment {
+  id             String            @id @default(cuid())
+  companyId      String
+  contractId     String
+  number         Int
+  dueDate        DateTime
+  originalAmount Decimal           @db.Decimal(12, 2)
+  penaltyAmount  Decimal           @default(0) @db.Decimal(12, 2)
+  interestAmount Decimal           @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal           @default(0) @db.Decimal(12, 2)
+  finalAmount    Decimal           @db.Decimal(12, 2)
+  paidAmount     Decimal           @default(0) @db.Decimal(12, 2)
+  paymentDate    DateTime?
+  status         InstallmentStatus @default(PENDING)
+  note           String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contract Contract  @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@unique([contractId, number])
+  @@index([companyId, status, dueDate])
+  @@index([companyId, dueDate])
+}
+
+model Payment {
+  id                 String        @id @default(cuid())
+  companyId          String
+  customerId         String
+  contractId         String
+  installmentId      String?
+  registeredByUserId String?
+  code               String
+  amountPaid         Decimal       @db.Decimal(12, 2)
+  paymentDate        DateTime
+  method             PaymentMethod
+  reference          String?
+  note               String?
+  receiptUrl         String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  installment  Installment? @relation(fields: [installmentId], references: [id], onDelete: Restrict)
+  registeredBy User?        @relation("PaymentRegisteredBy", fields: [registeredByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, code])
+  @@index([companyId, paymentDate])
+  @@index([companyId, method])
+}
+
+model Maintenance {
+  id                    String            @id @default(cuid())
+  companyId             String
+  motorcycleId          String
+  type                  MaintenanceType
+  description           String
+  date                  DateTime
+  mileage               Int?
+  amount                Decimal           @default(0) @db.Decimal(12, 2)
+  workshop              String?
+  nextMaintenanceDate   DateTime?
+  nextMaintenanceMileage Int?
+  status                MaintenanceStatus @default(SCHEDULED)
+  notes                 String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  motorcycle Motorcycle @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status, date])
+  @@index([companyId, motorcycleId])
+}
+
+model Document {
+  id             String         @id @default(cuid())
+  companyId      String
+  customerId     String?
+  motorcycleId   String?
+  contractId     String?
+  name           String
+  type           DocumentType
+  number         String?
+  issueDate      DateTime?
+  expirationDate DateTime?
+  fileUrl        String
+  note           String?
+  visibleToCustomer Boolean    @default(false)
+  status         DocumentStatus @default(VALID)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer   Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  motorcycle Motorcycle? @relation(fields: [motorcycleId], references: [id], onDelete: SetNull)
+  contract   Contract?   @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, expirationDate])
+  @@index([companyId, customerId])
+  @@index([companyId, motorcycleId])
+}
+
+model Notification {
+  id              String               @id @default(cuid())
+  companyId       String
+  createdByUserId String?
+  title           String
+  message         String
+  type            NotificationType
+  priority        NotificationPriority @default(NORMAL)
+  publishedAt     DateTime             @default(now())
+  expiresAt       DateTime?
+  status          NotificationStatus   @default(PUBLISHED)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  company    Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy  User?                   @relation("NotificationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  recipients NotificationRecipient[]
+
+  @@index([companyId, status, publishedAt])
+  @@index([companyId, priority])
+}
+
+model NotificationRecipient {
+  id             String    @id @default(cuid())
+  notificationId String
+  customerId     String
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@unique([notificationId, customerId])
+  @@index([customerId, readAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String?
+  userId      String?
+  action      String
+  entity      String
+  entityId    String
+  description String
+  before      Json?
+  after       Json?
+  createdAt   DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([entity, entityId])
+}

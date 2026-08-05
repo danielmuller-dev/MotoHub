@@ -51,7 +51,8 @@ Campos importantes de vencimento do contrato:
 Crie um `.env` local com base em `.env.example`.
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/motogestor?schema=public"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
+DIRECT_URL="postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/neondb?sslmode=require"
 SESSION_SECRET="troque-por-uma-chave-com-pelo-menos-32-caracteres"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ```
@@ -170,18 +171,20 @@ Tambem existe um guia direto em `docs/configuracao-inicial.md`.
 
 ## PostgreSQL
 
-Use Neon, Supabase PostgreSQL, Railway, Render ou outro PostgreSQL externo.
+Use Neon PostgreSQL para o primeiro deploy.
 
 1. Crie o banco.
-2. Copie a connection string.
-3. Configure `DATABASE_URL`.
-4. Rode migrations:
+2. Mantenha o Neon Auth desligado.
+3. Copie a URL com `Connection pooling` ligado para `DATABASE_URL`.
+4. Copie a URL com `Connection pooling` desligado para `DIRECT_URL`.
+5. Configure essas variaveis localmente e na Vercel.
+6. Rode migrations:
 
 ```bash
 npm run prisma:deploy
 ```
 
-5. Para dados de demo:
+7. Para dados de demo:
 
 ```bash
 npm run db:seed
@@ -193,6 +196,7 @@ npm run db:seed
 2. Crie um projeto na Vercel importando o repositorio.
 3. Cadastre as variaveis:
    - `DATABASE_URL`
+   - `DIRECT_URL`
    - `SESSION_SECRET`
    - `NEXT_PUBLIC_APP_URL`
 4. Use o build command padrao:

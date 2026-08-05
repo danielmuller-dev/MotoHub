@@ -21,24 +21,37 @@ gh auth login
 gh repo create SEU_USUARIO/motogestor --private --source=. --remote=origin --push
 ```
 
-## 2. PostgreSQL
+## 2. PostgreSQL no Neon
 
-Crie um banco PostgreSQL em Neon, Supabase, Railway, Render ou outro provedor.
+Crie um banco PostgreSQL no Neon.
 
-Copie a connection string no formato:
+Configuracao recomendada:
+
+- Project name: `MotoHub`
+- Region: `AWS South America East 1 (Sao Paulo)`
+- Neon Auth: desligado, porque o app ja possui autenticacao propria
+
+Depois de criado, clique em `Connect` no painel do Neon e copie duas URLs:
+
+- `DATABASE_URL`: ligue `Connection pooling`. A URL fica com `-pooler` no host.
+- `DIRECT_URL`: desligue `Connection pooling`. A URL fica sem `-pooler` no host.
+
+Exemplo:
 
 ```txt
-postgresql://USER:PASSWORD@HOST:5432/motogestor?schema=public
+DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
+DIRECT_URL="postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/neondb?sslmode=require"
 ```
 
-Cadastre esse valor como `DATABASE_URL`.
+O app usa `DATABASE_URL`. O Prisma usa `DIRECT_URL` automaticamente para migrations quando ela existir.
 
 ## 3. Variaveis de Ambiente
 
 Use estas variaveis localmente e tambem na Vercel:
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/motogestor?schema=public"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
+DIRECT_URL="postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/neondb?sslmode=require"
 SESSION_SECRET="gere-uma-chave-grande-com-mais-de-32-caracteres"
 NEXT_PUBLIC_APP_URL="https://seu-dominio.vercel.app"
 ```
@@ -76,7 +89,7 @@ O seed cria:
 ## 5. Vercel
 
 1. Importe o repositorio do GitHub na Vercel.
-2. Configure as variaveis `DATABASE_URL`, `SESSION_SECRET` e `NEXT_PUBLIC_APP_URL`.
+2. Configure as variaveis `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET` e `NEXT_PUBLIC_APP_URL`.
 3. Use o build padrao do projeto:
 
 ```bash

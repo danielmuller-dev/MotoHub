@@ -3,8 +3,19 @@ import type {
   CompanyStatus,
   ContractStatus,
   ContractType,
+  AdditionalChargeStatus,
+  AdditionalChargeType,
+  DamageResponsibleParty,
+  DamageSeverity,
+  DamageStatus,
   DocumentStatus,
+  FuelLevel,
   InstallmentStatus,
+  InspectionItemCondition,
+  InspectionPhotoType,
+  InspectionSignatureType,
+  InspectionStatus,
+  InspectionType,
   MaintenanceStatus,
   MaintenanceType,
   MotorcycleStatus,
@@ -120,6 +131,100 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   COMPLETED: "Concluido",
   CANCELLED: "Cancelado",
   TERMINATED: "Encerrado"
+};
+
+export const inspectionTypeLabels: Record<InspectionType, string> = {
+  DELIVERY: "Entrega",
+  PERIODIC: "Periodica",
+  RETURN: "Devolucao",
+  EXTRAORDINARY: "Extraordinaria"
+};
+
+export const inspectionStatusLabels: Record<InspectionStatus, string> = {
+  DRAFT: "Rascunho",
+  IN_PROGRESS: "Em andamento",
+  COMPLETED: "Concluida",
+  CANCELLED: "Cancelada"
+};
+
+export const inspectionConditionLabels: Record<InspectionItemCondition, string> = {
+  OK: "OK",
+  DAMAGED: "Avariado",
+  MISSING: "Ausente",
+  NEEDS_MAINTENANCE: "Precisa manutencao",
+  NOT_APPLICABLE: "Nao aplicavel",
+  NOT_CHECKED: "Nao verificado"
+};
+
+export const fuelLevelLabels: Record<FuelLevel, string> = {
+  EMPTY: "Vazio",
+  RESERVE: "Reserva",
+  ONE_QUARTER: "1/4",
+  HALF: "1/2",
+  THREE_QUARTERS: "3/4",
+  FULL: "Cheio"
+};
+
+export const inspectionPhotoTypeLabels: Record<InspectionPhotoType, string> = {
+  FRONT: "Frente",
+  REAR: "Traseira",
+  LEFT_SIDE: "Lateral esquerda",
+  RIGHT_SIDE: "Lateral direita",
+  ODOMETER: "Hodometro",
+  PLATE: "Placa",
+  ENGINE: "Motor",
+  FRONT_TIRE: "Pneu dianteiro",
+  REAR_TIRE: "Pneu traseiro",
+  DAMAGE: "Avaria",
+  ACCESSORY: "Acessorio",
+  SIGNATURE: "Assinatura",
+  OTHER: "Outro"
+};
+
+export const inspectionSignatureTypeLabels: Record<InspectionSignatureType, string> = {
+  CUSTOMER: "Cliente",
+  EMPLOYEE: "Responsavel"
+};
+
+export const damageSeverityLabels: Record<DamageSeverity, string> = {
+  LOW: "Baixa",
+  MEDIUM: "Media",
+  HIGH: "Alta",
+  CRITICAL: "Critica"
+};
+
+export const damageStatusLabels: Record<DamageStatus, string> = {
+  OPEN: "Aberta",
+  UNDER_REVIEW: "Em analise",
+  APPROVED: "Aprovada",
+  REJECTED: "Rejeitada",
+  CHARGED: "Cobrada",
+  REPAIRED: "Reparada",
+  CANCELLED: "Cancelada"
+};
+
+export const damageResponsiblePartyLabels: Record<DamageResponsibleParty, string> = {
+  CUSTOMER: "Cliente",
+  COMPANY: "Empresa",
+  THIRD_PARTY: "Terceiro",
+  UNDEFINED: "Nao definido"
+};
+
+export const additionalChargeTypeLabels: Record<AdditionalChargeType, string> = {
+  DAMAGE: "Avaria",
+  MISSING_ACCESSORY: "Acessorio ausente",
+  MILEAGE_EXCESS: "Excesso de km",
+  FUEL_DIFFERENCE: "Diferenca de combustivel",
+  FINE: "Multa",
+  OTHER: "Outro"
+};
+
+export const additionalChargeStatusLabels: Record<AdditionalChargeStatus, string> = {
+  PENDING: "Pendente",
+  PARTIALLY_PAID: "Parcialmente paga",
+  PAID: "Paga",
+  CANCELLED: "Cancelada",
+  OVERDUE: "Vencida"
 };
 
 export const installmentStatusLabels: Record<InstallmentStatus, string> = {

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { Prisma, UserRole } from "@prisma/client";
+import { Prisma, UserRole, type InspectionPhotoType, type InspectionSignatureType } from "@prisma/client";
 import {
   clearSessionCookie,
   defaultPathForRole,
@@ -25,6 +25,9 @@ import {
   customerSchema,
   documentSchema,
   installmentRenegotiationSchema,
+  inspectionCancelSchema,
+  inspectionItemSchema,
+  inspectionSchema,
   loginSchema,
   maintenanceSchema,
   motorcycleSchema,
@@ -37,6 +40,7 @@ import {
 } from "@/lib/schemas";
 import { dateFromInput, nullableString, slugify } from "@/lib/utils";
 import { appendFlashParam } from "@/lib/contract-installments";
+import { inspectionChecklist, requiredInspectionPhotoTypes, defaultInspectionAccessories } from "@/lib/inspection-checklist";
 import {
   cancelContract,
   createActiveContract,
@@ -46,6 +50,7 @@ import {
   terminateContract,
   updateContractDetails
 } from "@/services/contracts";
+import { cancelInspection, upsertInspection } from "@/services/inspections";
 import { registerPayment, reversePayment } from "@/services/payments";
 import { recordAudit } from "@/services/audit";
 
@@ -78,9 +83,105 @@ function checked(value: FormDataEntryValue | null) {
 
 function safeReturnPath(formData: FormData, fallback: string) {
   const returnTo = String(formData.get("returnTo") ?? "").trim();
-  return returnTo.startsWith("/contracts/") || returnTo.startsWith("/payments")
+  return returnTo.startsWith("/contracts/") ||
+    returnTo.startsWith("/payments") ||
+    returnTo.startsWith("/inspections") ||
+    returnTo.startsWith("/motorcycles/") ||
+    returnTo.startsWith("/customers/")
     ? returnTo
     : fallback;
+}
+
+function moneyField(formData: FormData, name: string) {
+  return String(formData.get(name) ?? "0").replace(",", ".").trim() || "0";
+}
+
+function optionalFile(formData: FormData, name: string) {
+  const file = formData.get(name);
+  return file instanceof File && file.size > 0 ? file : null;
+}
+
+function parseInspectionItems(formData: FormData) {
+  return inspectionChecklist.map((item) => {
+    const parsed = inspectionItemSchema.safeParse({
+      itemKey: item.key,
+      condition: formData.get(`item_${item.key}_condition`) ?? "NOT_CHECKED",
+      notes: formData.get(`item_${item.key}_notes`),
+      estimatedCost: moneyField(formData, `item_${item.key}_estimatedCost`),
+      preExisting: checked(formData.get(`item_${item.key}_preExisting`)),
+      newDamage: checked(formData.get(`item_${item.key}_newDamage`)),
+      chargeCustomer: checked(formData.get(`item_${item.key}_chargeCustomer`))
+    });
+
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues[0]?.message ?? `Item ${item.label} invalido.`);
+    }
+
+    return parsed.data;
+  });
+}
+
+function parseInspectionAccessories(formData: FormData) {
+  return defaultInspectionAccessories.map((name, index) => ({
+    name,
+    delivered: checked(formData.get(`accessory_${index}_delivered`)),
+    returned: checked(formData.get(`accessory_${index}_returned`)),
+    condition: String(formData.get(`accessory_${index}_condition`) ?? "NOT_CHECKED") as never,
+    notes: nullableString(formData.get(`accessory_${index}_notes`)),
+    replacementCost: Number(moneyField(formData, `accessory_${index}_replacementCost`)),
+    chargeCustomer: checked(formData.get(`accessory_${index}_chargeCustomer`))
+  }));
+}
+
+function parseInspectionPhotos(formData: FormData) {
+  const photoTypes = [
+    ...requiredInspectionPhotoTypes,
+    "DAMAGE",
+    "ACCESSORY",
+    "OTHER"
+  ] as InspectionPhotoType[];
+
+  return photoTypes.flatMap((type, index) => {
+    const file = optionalFile(formData, `photo_${type}`);
+    return file
+      ? [{
+          type,
+          file,
+          caption: nullableString(formData.get(`photo_${type}_caption`)),
+          sortOrder: index
+        }]
+      : [];
+  });
+}
+
+function parseInspectionSignatures(formData: FormData) {
+  const signatures: Array<{
+    type: InspectionSignatureType;
+    dataUrl: string;
+    signedByName: string;
+  }> = [];
+
+  const customerSignature = String(formData.get("customerSignatureDataUrl") ?? "").trim();
+  const customerName = String(formData.get("customerSignatureName") ?? "").trim();
+  if (customerSignature && customerName) {
+    signatures.push({
+      type: "CUSTOMER",
+      dataUrl: customerSignature,
+      signedByName: customerName
+    });
+  }
+
+  const employeeSignature = String(formData.get("employeeSignatureDataUrl") ?? "").trim();
+  const employeeName = String(formData.get("employeeSignatureName") ?? "").trim();
+  if (employeeSignature && employeeName) {
+    signatures.push({
+      type: "EMPLOYEE",
+      dataUrl: employeeSignature,
+      signedByName: employeeName
+    });
+  }
+
+  return signatures;
 }
 
 export async function loginAction(formData: FormData) {
@@ -722,6 +823,104 @@ export async function reversePaymentAction(formData: FormData) {
     redirectWith(returnPath, "success", "Pagamento estornado.");
   } catch (error) {
     redirectWith(returnPath, "error", messageFromError(error));
+  }
+}
+
+export async function upsertInspectionAction(formData: FormData) {
+  const user = await requireCompanyRole();
+  const fallback = String(formData.get("inspectionId") ?? "").trim()
+    ? `/inspections/${String(formData.get("inspectionId"))}/edit`
+    : "/inspections/new";
+  const returnTo = safeReturnPath(formData, fallback);
+  const parsed = inspectionSchema.safeParse({
+    ...formToObject(formData),
+    customerPresent: checked(formData.get("customerPresent")),
+    customerRefusedSignature: checked(formData.get("customerRefusedSignature")),
+    createMaintenance: checked(formData.get("createMaintenance")),
+    mileageExcessKmPrice: moneyField(formData, "mileageExcessKmPrice")
+  });
+
+  if (!parsed.success) {
+    redirectWith(returnTo, "error", parsed.error.issues[0]?.message ?? "Vistoria invalida.");
+  }
+
+  try {
+    const items = parseInspectionItems(formData);
+    const inspection = await upsertInspection({
+      companyId: user.companyId!,
+      userId: user.id,
+      inspectionId: valueOrNull(parsed.data.inspectionId),
+      contractId: valueOrNull(parsed.data.contractId),
+      motorcycleId: parsed.data.motorcycleId,
+      customerId: valueOrNull(parsed.data.customerId),
+      type: parsed.data.type,
+      submitIntent: parsed.data.submitIntent,
+      inspectionDate: dateFromInput(parsed.data.inspectionDate),
+      mileage: parsed.data.mileage,
+      fuelLevel: parsed.data.fuelLevel,
+      generalCondition: parsed.data.generalCondition,
+      generalDamages: parsed.data.generalDamages,
+      location: parsed.data.location,
+      notes: parsed.data.notes,
+      administrativeNotes: parsed.data.administrativeNotes,
+      customerPresent: parsed.data.customerPresent,
+      customerRefusedSignature: parsed.data.customerRefusedSignature,
+      refusalReason: parsed.data.refusalReason,
+      destinationStatus: valueOrNull(parsed.data.destinationStatus),
+      mileageExcessKmPrice: parsed.data.mileageExcessKmPrice,
+      createMaintenance: parsed.data.createMaintenance,
+      items,
+      accessories: parseInspectionAccessories(formData),
+      photos: parseInspectionPhotos(formData),
+      signatures: parseInspectionSignatures(formData)
+    });
+
+    revalidatePath("/inspections");
+    revalidatePath(`/inspections/${inspection.id}`);
+    if (inspection.contractId) {
+      revalidatePath(`/contracts/${inspection.contractId}`);
+    }
+    revalidatePath(`/motorcycles/${inspection.motorcycleId}`);
+    if (inspection.customerId) {
+      revalidatePath(`/customers/${inspection.customerId}`);
+    }
+
+    redirectWith(
+      `/inspections/${inspection.id}`,
+      "success",
+      parsed.data.submitIntent === "COMPLETE" ? "Vistoria concluida." : "Vistoria salva como rascunho."
+    );
+  } catch (error) {
+    redirectWith(returnTo, "error", messageFromError(error));
+  }
+}
+
+export async function cancelInspectionAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN"]);
+  const parsed = inspectionCancelSchema.safeParse(formToObject(formData));
+  const returnTo = safeReturnPath(formData, "/inspections");
+
+  if (!parsed.success) {
+    redirectWith(returnTo, "error", parsed.error.issues[0]?.message ?? "Cancelamento invalido.");
+  }
+
+  try {
+    const inspection = await cancelInspection({
+      companyId: user.companyId!,
+      userId: user.id,
+      inspectionId: parsed.data.inspectionId,
+      reason: parsed.data.cancellationReason
+    });
+
+    revalidatePath("/inspections");
+    revalidatePath(`/inspections/${inspection.id}`);
+    if (inspection.contractId) {
+      revalidatePath(`/contracts/${inspection.contractId}`);
+    }
+
+    redirectWith(`/inspections/${inspection.id}`, "success", "Vistoria cancelada.");
+  } catch (error) {
+    redirectWith(returnTo, "error", messageFromError(error));
   }
 }
 

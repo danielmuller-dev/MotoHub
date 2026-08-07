@@ -13,6 +13,7 @@ import {
 import {
   ContractStatusBadge,
   InstallmentStatusBadge,
+  InspectionStatusBadge,
   MotorcycleStatusBadge,
   PaymentStatusBadge
 } from "@/components/status-badge";
@@ -32,6 +33,7 @@ import {
   formatDate,
   formatDateInput,
   formatDateTime,
+  inspectionTypeLabels,
   paymentMethodLabels,
   weekDayLabels
 } from "@/lib/format";
@@ -134,7 +136,8 @@ export default async function ContractDetailPage({
     overdueInstallments,
     pendingInstallments,
     totalFilteredInstallments,
-    contractEvents
+    contractEvents,
+    latestInspections
   ] = await Promise.all([
     prisma.installment.count({ where: { companyId: user.companyId!, contractId: contract.id, status: "PAID" } }),
     prisma.installment.count({ where: { companyId: user.companyId!, contractId: contract.id, status: "OVERDUE" } }),
@@ -151,6 +154,12 @@ export default async function ContractDetailPage({
       orderBy: { createdAt: "desc" },
       take: 12,
       include: { user: true }
+    }),
+    prisma.inspection.findMany({
+      where: { companyId: user.companyId!, contractId: contract.id },
+      orderBy: [{ inspectionDate: "desc" }, { createdAt: "desc" }],
+      take: 5,
+      include: { _count: { select: { damages: true, photos: true } } }
     })
   ]);
 
@@ -277,6 +286,79 @@ export default async function ContractDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader
+          title="Vistorias do contrato"
+          description="Entrega, devolucao e acompanhamentos vinculados a este contrato."
+          action={
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/inspections/new?contractId=${contract.id}&type=DELIVERY`}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-asphalt hover:bg-slate-50"
+              >
+                Entrega
+              </Link>
+              <Link
+                href={`/inspections/new?contractId=${contract.id}&type=PERIODIC`}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-asphalt hover:bg-slate-50"
+              >
+                Periodica
+              </Link>
+              <Link
+                href={`/inspections/new?contractId=${contract.id}&type=RETURN`}
+                className="inline-flex h-9 items-center justify-center rounded-md bg-asphalt px-3 text-sm font-medium text-white hover:bg-graphite"
+              >
+                Devolucao
+              </Link>
+              <Link
+                href={`/contracts/${contract.id}/inspections`}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-asphalt hover:bg-slate-50"
+              >
+                Ver todas
+              </Link>
+            </div>
+          }
+        />
+        <CardContent>
+          {latestInspections.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Codigo</th>
+                    <th className="px-3 py-2">Tipo</th>
+                    <th className="px-3 py-2">Data</th>
+                    <th className="px-3 py-2">Km</th>
+                    <th className="px-3 py-2">Resumo</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {latestInspections.map((inspection) => (
+                    <tr key={inspection.id}>
+                      <td className="px-3 py-3">
+                        <Link href={`/inspections/${inspection.id}`} className="font-medium text-petrol hover:underline">
+                          {inspection.code}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3">{inspectionTypeLabels[inspection.type]}</td>
+                      <td className="px-3 py-3">{formatDate(inspection.inspectionDate)}</td>
+                      <td className="px-3 py-3">{inspection.mileage} km</td>
+                      <td className="px-3 py-3 text-slate-600">
+                        {inspection._count.damages} avaria(s), {inspection._count.photos} foto(s)
+                      </td>
+                      <td className="px-3 py-3"><InspectionStatusBadge status={inspection.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="Sem vistorias" description="Registre a entrega para criar o historico operacional deste contrato." />
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader

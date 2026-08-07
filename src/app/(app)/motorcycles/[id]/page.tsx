@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Bike } from "lucide-react";
 import { notFound } from "next/navigation";
-import { ContractStatusBadge, MotorcycleStatusBadge } from "@/components/status-badge";
+import { ContractStatusBadge, InspectionStatusBadge, MotorcycleStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireCompanyRole } from "@/lib/auth";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, inspectionTypeLabels } from "@/lib/format";
 import { sumConfirmedPayments } from "@/lib/payment-totals";
 import { prisma } from "@/lib/prisma";
 
@@ -26,6 +26,10 @@ export default async function MotorcycleDetailPage({ params }: { params: Promise
       },
       documents: {
         orderBy: { expirationDate: "asc" }
+      },
+      inspections: {
+        orderBy: [{ inspectionDate: "desc" }, { createdAt: "desc" }],
+        take: 5
       }
     }
   });
@@ -109,6 +113,52 @@ export default async function MotorcycleDetailPage({ params }: { params: Promise
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader
+          title="Vistorias"
+          description="Ultimas entregas, devolucoes e acompanhamentos desta moto."
+          action={
+            <Link href={`/motorcycles/${motorcycle.id}/inspections`} className="text-sm font-medium text-petrol hover:underline">
+              Ver todas
+            </Link>
+          }
+        />
+        <CardContent>
+          {motorcycle.inspections.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Codigo</th>
+                    <th className="px-3 py-2">Tipo</th>
+                    <th className="px-3 py-2">Data</th>
+                    <th className="px-3 py-2">Km</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {motorcycle.inspections.map((inspection) => (
+                    <tr key={inspection.id}>
+                      <td className="px-3 py-3">
+                        <Link href={`/inspections/${inspection.id}`} className="font-medium text-petrol hover:underline">
+                          {inspection.code}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3">{inspectionTypeLabels[inspection.type]}</td>
+                      <td className="px-3 py-3">{formatDate(inspection.inspectionDate)}</td>
+                      <td className="px-3 py-3">{inspection.mileage} km</td>
+                      <td className="px-3 py-3"><InspectionStatusBadge status={inspection.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="Sem vistorias" description="Nenhuma vistoria foi registrada para esta moto." />
+          )}
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <Card>

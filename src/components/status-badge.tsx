@@ -1,8 +1,19 @@
-import { ContractStatus, InstallmentStatus, MotorcycleStatus, PaymentStatus } from "@prisma/client";
+import {
+  AdditionalChargeStatus,
+  ContractStatus,
+  DamageStatus,
+  InspectionStatus,
+  InstallmentStatus,
+  MotorcycleStatus,
+  PaymentStatus
+} from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import {
+  additionalChargeStatusLabels,
   contractStatusLabels,
+  damageStatusLabels,
   installmentStatusLabels,
+  inspectionStatusLabels,
   motorcycleStatusLabels,
   paymentStatusLabels
 } from "@/lib/format";
@@ -58,4 +69,43 @@ export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
       {paymentStatusLabels[status]}
     </Badge>
   );
+}
+
+export function InspectionStatusBadge({ status }: { status: InspectionStatus }) {
+  const tone =
+    status === "COMPLETED"
+      ? "green"
+      : status === "CANCELLED"
+        ? "red"
+        : status === "IN_PROGRESS"
+          ? "blue"
+          : "neutral";
+
+  return <Badge tone={tone}>{inspectionStatusLabels[status]}</Badge>;
+}
+
+export function DamageStatusBadge({ status }: { status: DamageStatus }) {
+  const tone =
+    status === "APPROVED" || status === "CHARGED"
+      ? "yellow"
+      : status === "REPAIRED"
+        ? "green"
+        : status === "REJECTED" || status === "CANCELLED"
+          ? "red"
+          : "neutral";
+
+  return <Badge tone={tone}>{damageStatusLabels[status]}</Badge>;
+}
+
+export function AdditionalChargeStatusBadge({ status }: { status: AdditionalChargeStatus }) {
+  const tone =
+    status === "PAID"
+      ? "green"
+      : status === "CANCELLED"
+        ? "red"
+        : status === "PENDING"
+          ? "neutral"
+          : "yellow";
+
+  return <Badge tone={tone}>{additionalChargeStatusLabels[status]}</Badge>;
 }

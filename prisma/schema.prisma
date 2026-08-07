@@ -116,6 +116,106 @@ enum ContractEventType {
   CONTRACT_CANCELLED
   CONTRACT_COMPLETED
   MOTORCYCLE_STATUS_CHANGED
+  INSPECTION_CREATED
+  INSPECTION_COMPLETED
+  INSPECTION_CANCELLED
+  INSPECTION_DAMAGE_REGISTERED
+  INSPECTION_CHARGE_CREATED
+  INSPECTION_MAINTENANCE_CREATED
+}
+
+enum InspectionType {
+  DELIVERY
+  PERIODIC
+  RETURN
+  EXTRAORDINARY
+}
+
+enum InspectionStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InspectionItemCondition {
+  OK
+  DAMAGED
+  MISSING
+  NEEDS_MAINTENANCE
+  NOT_APPLICABLE
+  NOT_CHECKED
+}
+
+enum FuelLevel {
+  EMPTY
+  RESERVE
+  ONE_QUARTER
+  HALF
+  THREE_QUARTERS
+  FULL
+}
+
+enum InspectionPhotoType {
+  FRONT
+  REAR
+  LEFT_SIDE
+  RIGHT_SIDE
+  ODOMETER
+  PLATE
+  ENGINE
+  FRONT_TIRE
+  REAR_TIRE
+  DAMAGE
+  ACCESSORY
+  SIGNATURE
+  OTHER
+}
+
+enum DamageSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DamageStatus {
+  OPEN
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CHARGED
+  REPAIRED
+  CANCELLED
+}
+
+enum DamageResponsibleParty {
+  CUSTOMER
+  COMPANY
+  THIRD_PARTY
+  UNDEFINED
+}
+
+enum InspectionSignatureType {
+  EMPLOYEE
+  CUSTOMER
+}
+
+enum AdditionalChargeType {
+  DAMAGE
+  MILEAGE_EXCESS
+  MISSING_ACCESSORY
+  FUEL_DIFFERENCE
+  FINE
+  OTHER
+}
+
+enum AdditionalChargeStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  OVERDUE
 }
 
 enum MaintenanceType {
@@ -197,18 +297,25 @@ model Company {
   updatedAt          DateTime      @updatedAt
   deletedAt          DateTime?
 
-  settings       CompanySettings?
-  users          User[]
-  customers      Customer[]
-  motorcycles    Motorcycle[]
-  contracts      Contract[]
-  installments   Installment[]
-  payments       Payment[]
-  maintenances   Maintenance[]
-  documents      Document[]
-  notifications  Notification[]
-  auditLogs      AuditLog[]
-  contractEvents ContractEvent[]
+  settings              CompanySettings?
+  users                 User[]
+  customers             Customer[]
+  motorcycles           Motorcycle[]
+  contracts             Contract[]
+  installments          Installment[]
+  payments              Payment[]
+  maintenances          Maintenance[]
+  documents             Document[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  contractEvents        ContractEvent[]
+  inspections           Inspection[]
+  inspectionItems       InspectionItem[]
+  inspectionPhotos      InspectionPhoto[]
+  inspectionDamages     InspectionDamage[]
+  inspectionAccessories InspectionAccessory[]
+  inspectionSignatures  InspectionSignature[]
+  additionalCharges     AdditionalCharge[]
 
   @@index([status])
   @@index([createdAt])
@@ -245,13 +352,18 @@ model User {
   updatedAt    DateTime   @updatedAt
   deletedAt    DateTime?
 
-  company              Company?        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  customer             Customer?       @relation("CustomerUser", fields: [customerId], references: [id], onDelete: SetNull)
-  paymentsRegistered   Payment[]       @relation("PaymentRegisteredBy")
-  paymentsReversed     Payment[]       @relation("PaymentReversedBy")
-  contractEvents       ContractEvent[]
-  notificationsCreated Notification[]  @relation("NotificationCreatedBy")
-  auditLogs            AuditLog[]
+  company                  Company?           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer                 Customer?          @relation("CustomerUser", fields: [customerId], references: [id], onDelete: SetNull)
+  paymentsRegistered       Payment[]          @relation("PaymentRegisteredBy")
+  paymentsReversed         Payment[]          @relation("PaymentReversedBy")
+  contractEvents           ContractEvent[]
+  inspectionsCreated       Inspection[]       @relation("InspectionCreatedBy")
+  inspectionsCompleted     Inspection[]       @relation("InspectionCompletedBy")
+  inspectionsCancelled     Inspection[]       @relation("InspectionCancelledBy")
+  inspectionPhotosUploaded InspectionPhoto[]  @relation("InspectionPhotoUploadedBy")
+  additionalChargesCreated AdditionalCharge[] @relation("AdditionalChargeCreatedBy")
+  notificationsCreated     Notification[]     @relation("NotificationCreatedBy")
+  auditLogs                AuditLog[]
 
   @@index([companyId, role])
   @@index([status])
@@ -292,6 +404,8 @@ model Customer {
   payments               Payment[]
   documents              Document[]
   notificationRecipients NotificationRecipient[]
+  inspections            Inspection[]
+  additionalCharges      AdditionalCharge[]
 
   @@unique([companyId, cpf])
   @@unique([companyId, email])
@@ -322,11 +436,13 @@ model Motorcycle {
   updatedAt         DateTime         @updatedAt
   deletedAt         DateTime?
 
-  company         Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  currentCustomer Customer?     @relation("CurrentMotorcycleCustomer", fields: [currentCustomerId], references: [id], onDelete: SetNull)
-  contracts       Contract[]
-  maintenances    Maintenance[]
-  documents       Document[]
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  currentCustomer   Customer?          @relation("CurrentMotorcycleCustomer", fields: [currentCustomerId], references: [id], onDelete: SetNull)
+  contracts         Contract[]
+  maintenances      Maintenance[]
+  documents         Document[]
+  inspections       Inspection[]
+  additionalCharges AdditionalCharge[]
 
   @@unique([companyId, plate])
   @@unique([companyId, renavam])
@@ -381,13 +497,15 @@ model Contract {
   updatedAt                  DateTime            @updatedAt
   deletedAt                  DateTime?
 
-  company      Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  customer     Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  motorcycle   Motorcycle      @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
-  installments Installment[]
-  payments     Payment[]
-  documents    Document[]
-  events       ContractEvent[]
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer          Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  motorcycle        Motorcycle         @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  installments      Installment[]
+  payments          Payment[]
+  documents         Document[]
+  events            ContractEvent[]
+  inspections       Inspection[]
+  additionalCharges AdditionalCharge[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -433,6 +551,7 @@ model Payment {
   customerId         String
   contractId         String
   installmentId      String?
+  additionalChargeId String?
   registeredByUserId String?
   code               String
   amountPaid         Decimal       @db.Decimal(12, 2)
@@ -449,23 +568,26 @@ model Payment {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Restrict)
-  installment  Installment? @relation(fields: [installmentId], references: [id], onDelete: Restrict)
-  registeredBy User?        @relation("PaymentRegisteredBy", fields: [registeredByUserId], references: [id], onDelete: SetNull)
-  reversedBy   User?        @relation("PaymentReversedBy", fields: [reversedByUserId], references: [id], onDelete: SetNull)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract         Contract          @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  installment      Installment?      @relation(fields: [installmentId], references: [id], onDelete: Restrict)
+  additionalCharge AdditionalCharge? @relation(fields: [additionalChargeId], references: [id], onDelete: Restrict)
+  registeredBy     User?             @relation("PaymentRegisteredBy", fields: [registeredByUserId], references: [id], onDelete: SetNull)
+  reversedBy       User?             @relation("PaymentReversedBy", fields: [reversedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, code])
   @@index([companyId, paymentDate])
   @@index([companyId, method])
   @@index([companyId, status])
+  @@index([companyId, additionalChargeId])
 }
 
 model Maintenance {
   id                     String            @id @default(cuid())
   companyId              String
   motorcycleId           String
+  inspectionId           String?
   type                   MaintenanceType
   description            String
   date                   DateTime
@@ -479,11 +601,13 @@ model Maintenance {
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
 
-  company    Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  motorcycle Motorcycle @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  motorcycle Motorcycle  @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  inspection Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
 
   @@index([companyId, status, date])
   @@index([companyId, motorcycleId])
+  @@index([companyId, inspectionId])
 }
 
 model Document {
@@ -586,4 +710,212 @@ model ContractEvent {
 
   @@index([companyId, contractId, createdAt])
   @@index([companyId, type])
+}
+
+model Inspection {
+  id                       String            @id @default(cuid())
+  companyId                String
+  contractId               String?
+  motorcycleId             String
+  customerId               String?
+  createdByUserId          String?
+  completedByUserId        String?
+  cancelledByUserId        String?
+  code                     String
+  type                     InspectionType
+  status                   InspectionStatus  @default(DRAFT)
+  inspectionDate           DateTime
+  mileage                  Int
+  fuelLevel                FuelLevel
+  generalCondition         String?
+  generalDamages           String?
+  location                 String?
+  notes                    String?
+  administrativeNotes      String?
+  customerPresent          Boolean           @default(false)
+  customerRefusedSignature Boolean           @default(false)
+  refusalReason            String?
+  completedAt              DateTime?
+  cancelledAt              DateTime?
+  cancellationReason       String?
+  deliveryConfirmedAt      DateTime?
+  returnedAt               DateTime?
+  destinationStatus        MotorcycleStatus?
+  mileageDriven            Int?
+  mileageExcess            Int?
+  mileageExcessCharge      Decimal           @default(0) @db.Decimal(12, 2)
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  company      Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contract     Contract?             @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  motorcycle   Motorcycle            @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  customer     Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdBy    User?                 @relation("InspectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  completedBy  User?                 @relation("InspectionCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  cancelledBy  User?                 @relation("InspectionCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  items        InspectionItem[]
+  photos       InspectionPhoto[]
+  damages      InspectionDamage[]
+  accessories  InspectionAccessory[]
+  signatures   InspectionSignature[]
+  charges      AdditionalCharge[]
+  maintenances Maintenance[]
+
+  @@unique([companyId, code])
+  @@index([companyId, type, status])
+  @@index([companyId, inspectionDate])
+  @@index([companyId, contractId])
+  @@index([companyId, motorcycleId])
+  @@index([companyId, customerId])
+}
+
+model InspectionItem {
+  id              String                  @id @default(cuid())
+  companyId       String
+  inspectionId    String
+  category        String
+  itemKey         String
+  itemLabel       String
+  condition       InspectionItemCondition @default(NOT_CHECKED)
+  notes           String?
+  photoUrl        String?
+  estimatedCost   Decimal                 @default(0) @db.Decimal(12, 2)
+  preExisting     Boolean                 @default(false)
+  newDamage       Boolean                 @default(false)
+  chargeCustomer  Boolean                 @default(false)
+  evaluatorUserId String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inspection Inspection         @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  photos     InspectionPhoto[]
+  damages    InspectionDamage[]
+
+  @@index([companyId, inspectionId])
+  @@index([companyId, itemKey])
+}
+
+model InspectionPhoto {
+  id               String              @id @default(cuid())
+  companyId        String
+  inspectionId     String
+  inspectionItemId String?
+  type             InspectionPhotoType
+  url              String
+  storageKey       String
+  contentType      String?
+  sizeBytes        Int?
+  caption          String?
+  sortOrder        Int                 @default(0)
+  uploadedByUserId String?
+  createdAt        DateTime            @default(now())
+  deletedAt        DateTime?
+
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inspection Inspection      @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  item       InspectionItem? @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+  uploadedBy User?           @relation("InspectionPhotoUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, inspectionId, type])
+  @@index([companyId, inspectionItemId])
+}
+
+model InspectionDamage {
+  id                   String                 @id @default(cuid())
+  companyId            String
+  inspectionId         String
+  inspectionItemId     String?
+  title                String
+  description          String?
+  severity             DamageSeverity         @default(LOW)
+  preExisting          Boolean                @default(false)
+  newDamage            Boolean                @default(false)
+  chargeCustomer       Boolean                @default(false)
+  estimatedCost        Decimal                @default(0) @db.Decimal(12, 2)
+  approvedChargeAmount Decimal                @default(0) @db.Decimal(12, 2)
+  status               DamageStatus           @default(OPEN)
+  responsibleParty     DamageResponsibleParty @default(UNDEFINED)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inspection Inspection         @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  item       InspectionItem?    @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+  charges    AdditionalCharge[]
+
+  @@index([companyId, inspectionId])
+  @@index([companyId, status])
+}
+
+model InspectionAccessory {
+  id              String                  @id @default(cuid())
+  companyId       String
+  inspectionId    String
+  name            String
+  delivered       Boolean                 @default(false)
+  returned        Boolean                 @default(false)
+  condition       InspectionItemCondition @default(NOT_CHECKED)
+  notes           String?
+  replacementCost Decimal                 @default(0) @db.Decimal(12, 2)
+  chargeCustomer  Boolean                 @default(false)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, inspectionId])
+}
+
+model InspectionSignature {
+  id           String                  @id @default(cuid())
+  companyId    String
+  inspectionId String
+  type         InspectionSignatureType
+  imageUrl     String
+  storageKey   String
+  signedByName String
+  signedAt     DateTime
+  createdAt    DateTime                @default(now())
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, inspectionId, type])
+}
+
+model AdditionalCharge {
+  id                 String                 @id @default(cuid())
+  companyId          String
+  contractId         String
+  customerId         String
+  motorcycleId       String
+  inspectionId       String?
+  inspectionDamageId String?
+  createdByUserId    String?
+  code               String
+  type               AdditionalChargeType
+  description        String
+  amount             Decimal                @db.Decimal(12, 2)
+  dueDate            DateTime
+  status             AdditionalChargeStatus @default(PENDING)
+  paidAmount         Decimal                @default(0) @db.Decimal(12, 2)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contract   Contract          @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  customer   Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  motorcycle Motorcycle        @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  inspection Inspection?       @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  damage     InspectionDamage? @relation(fields: [inspectionDamageId], references: [id], onDelete: SetNull)
+  createdBy  User?             @relation("AdditionalChargeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  payments   Payment[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status, dueDate])
+  @@index([companyId, contractId])
+  @@index([companyId, inspectionId])
 }

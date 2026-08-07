@@ -3,10 +3,14 @@ import {
   CompanyStatus,
   ContractType,
   DocumentType,
+  FuelLevel,
+  InspectionItemCondition,
+  InspectionStatus,
+  InspectionType,
+  MotorcycleStatus,
   MaintenanceStatus,
   MaintenanceType,
   MonthlyOverflowRule,
-  MotorcycleStatus,
   NotificationPriority,
   NotificationType,
   PaymentMethod,
@@ -224,6 +228,63 @@ export const paymentReversalSchema = z.object({
   paymentId: z.string().min(1),
   reversalReason: z.string().trim().min(1, "Informe o motivo do estorno."),
   reversalNotes: z.string().trim().min(1, "Informe a observacao do estorno.")
+});
+
+export const inspectionSchema = z
+  .object({
+    inspectionId: z.string().optional().or(z.literal("")),
+    contractId: z.string().optional().or(z.literal("")),
+    motorcycleId: z.string().min(1, "Selecione a moto."),
+    customerId: z.string().optional().or(z.literal("")),
+    type: z.nativeEnum(InspectionType),
+    status: z.nativeEnum(InspectionStatus).default("DRAFT"),
+    inspectionDate: dateText,
+    mileage: z.coerce.number().int().min(0, "Quilometragem invalida."),
+    fuelLevel: z.nativeEnum(FuelLevel),
+    generalCondition: optionalText,
+    generalDamages: optionalText,
+    location: optionalText,
+    notes: optionalText,
+    administrativeNotes: optionalText,
+    customerPresent: z.coerce.boolean().default(false),
+    customerRefusedSignature: z.coerce.boolean().default(false),
+    refusalReason: optionalText,
+    destinationStatus: z.nativeEnum(MotorcycleStatus).optional().or(z.literal("")),
+    mileageExcessKmPrice: moneySchema.default(0),
+    createMaintenance: z.coerce.boolean().default(false),
+    submitIntent: z.enum(["DRAFT", "COMPLETE"]).default("DRAFT")
+  })
+  .superRefine((value, context) => {
+    if ((value.type === "DELIVERY" || value.type === "RETURN") && !value.contractId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contractId"],
+        message: "Vistoria de entrega ou devolucao exige contrato."
+      });
+    }
+
+    if (value.customerRefusedSignature && !value.refusalReason) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["refusalReason"],
+        message: "Informe o motivo da recusa de assinatura."
+      });
+    }
+  });
+
+export const inspectionItemSchema = z.object({
+  itemKey: z.string().min(1),
+  condition: z.nativeEnum(InspectionItemCondition),
+  notes: optionalText,
+  estimatedCost: moneySchema.default(0),
+  preExisting: z.coerce.boolean().default(false),
+  newDamage: z.coerce.boolean().default(false),
+  chargeCustomer: z.coerce.boolean().default(false)
+});
+
+export const inspectionCancelSchema = z.object({
+  inspectionId: z.string().min(1),
+  cancellationReason: z.string().trim().min(1, "Informe o motivo do cancelamento.")
 });
 
 export const maintenanceSchema = z.object({

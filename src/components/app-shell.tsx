@@ -4,6 +4,7 @@ import {
   Bike,
   Building2,
   ClipboardList,
+  ClipboardCheck,
   CreditCard,
   FileText,
   Gauge,
@@ -41,6 +42,7 @@ function navForUser(user: CurrentUser): NavItem[] {
       { label: "Inicio", href: "/customer", icon: Home },
       { label: "Meu contrato", href: "/customer/contract", icon: ClipboardList },
       { label: "Minha moto", href: "/customer/motorcycle", icon: Bike },
+      { label: "Vistorias", href: "/customer/inspections", icon: ClipboardCheck },
       { label: "Pagamentos", href: "/customer/payments", icon: CreditCard },
       { label: "Documentos", href: "/customer/documents", icon: FileText },
       { label: "Avisos", href: "/customer/notifications", icon: Bell }
@@ -52,6 +54,7 @@ function navForUser(user: CurrentUser): NavItem[] {
     { label: "Clientes", href: "/customers", icon: Users },
     { label: "Motos", href: "/motorcycles", icon: Bike },
     { label: "Contratos", href: "/contracts", icon: ClipboardList },
+    { label: "Vistorias", href: "/inspections", icon: ClipboardCheck },
     { label: "Parcelas", href: "/installments", icon: FileText },
     { label: "Pagamentos", href: "/payments", icon: CreditCard },
     { label: "Manutencoes", href: "/maintenance", icon: Wrench },

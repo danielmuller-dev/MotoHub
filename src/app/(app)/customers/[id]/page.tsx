@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress";
-import { ContractStatusBadge, InstallmentStatusBadge } from "@/components/status-badge";
+import { ContractStatusBadge, InstallmentStatusBadge, InspectionStatusBadge } from "@/components/status-badge";
 import { requireCompanyRole } from "@/lib/auth";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, inspectionTypeLabels } from "@/lib/format";
 import { sumConfirmedPayments } from "@/lib/payment-totals";
 import { prisma } from "@/lib/prisma";
 
@@ -29,6 +29,14 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
         include: { notification: true },
         orderBy: { createdAt: "desc" },
         take: 6
+      },
+      inspections: {
+        orderBy: [{ inspectionDate: "desc" }, { createdAt: "desc" }],
+        take: 5,
+        include: {
+          motorcycle: true,
+          contract: true
+        }
       }
     }
   });
@@ -151,6 +159,54 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader
+          title="Vistorias"
+          description="Ultimas entregas, devolucoes e acompanhamentos deste cliente."
+          action={
+            <Link href={`/customers/${customer.id}/inspections`} className="text-sm font-medium text-petrol hover:underline">
+              Ver todas
+            </Link>
+          }
+        />
+        <CardContent>
+          {customer.inspections.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Codigo</th>
+                    <th className="px-3 py-2">Tipo</th>
+                    <th className="px-3 py-2">Data</th>
+                    <th className="px-3 py-2">Moto</th>
+                    <th className="px-3 py-2">Contrato</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {customer.inspections.map((inspection) => (
+                    <tr key={inspection.id}>
+                      <td className="px-3 py-3">
+                        <Link href={`/inspections/${inspection.id}`} className="font-medium text-petrol hover:underline">
+                          {inspection.code}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3">{inspectionTypeLabels[inspection.type]}</td>
+                      <td className="px-3 py-3">{formatDate(inspection.inspectionDate)}</td>
+                      <td className="px-3 py-3">{inspection.motorcycle.plate}</td>
+                      <td className="px-3 py-3">{inspection.contract?.code ?? "-"}</td>
+                      <td className="px-3 py-3"><InspectionStatusBadge status={inspection.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="Sem vistorias" description="Nenhuma vistoria foi registrada para este cliente." />
+          )}
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         <Card>

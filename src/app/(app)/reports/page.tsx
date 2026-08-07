@@ -29,7 +29,11 @@ export default async function ReportsPage({
     expiringDocuments
   ] = await Promise.all([
     prisma.payment.findMany({
-      where: { companyId: user.companyId!, paymentDate: { gte: period.start, lte: period.end } }
+      where: {
+        companyId: user.companyId!,
+        status: "CONFIRMED",
+        paymentDate: { gte: period.start, lte: period.end }
+      }
     }),
     prisma.installment.findMany({
       where: { companyId: user.companyId!, status: "OVERDUE" },

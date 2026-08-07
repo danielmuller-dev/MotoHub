@@ -73,6 +73,7 @@ enum ContractStatus {
   SUSPENDED
   COMPLETED
   CANCELLED
+  TERMINATED
 }
 
 enum InstallmentStatus {
@@ -90,6 +91,31 @@ enum PaymentMethod {
   CARD
   BOLETO
   OTHER
+}
+
+enum PaymentStatus {
+  CONFIRMED
+  REVERSED
+}
+
+enum ContractEventType {
+  CONTRACT_CREATED
+  CONTRACT_ACTIVATED
+  CONTRACT_EDITED
+  INSTALLMENT_GENERATED
+  PAYMENT_REGISTERED
+  PAYMENT_PARTIAL
+  PAYMENT_REVERSED
+  INSTALLMENT_OVERDUE
+  INSTALLMENT_RENEGOTIATED
+  DISCOUNT_APPLIED
+  FINE_APPLIED
+  CONTRACT_SUSPENDED
+  CONTRACT_RESUMED
+  CONTRACT_TERMINATED
+  CONTRACT_CANCELLED
+  CONTRACT_COMPLETED
+  MOTORCYCLE_STATUS_CHANGED
 }
 
 enum MaintenanceType {
@@ -151,7 +177,7 @@ enum NotificationStatus {
 }
 
 model Company {
-  id                 String              @id @default(cuid())
+  id                 String        @id @default(cuid())
   legalName          String
   tradeName          String?
   document           String?
@@ -163,25 +189,26 @@ model Company {
   state              String?
   zipCode            String?
   logoUrl            String?
-  slug               String              @unique
-  status             CompanyStatus       @default(ACTIVE)
-  subscriptionStatus String?             @default("trial")
+  slug               String        @unique
+  status             CompanyStatus @default(ACTIVE)
+  subscriptionStatus String?       @default("trial")
   trialEndsAt        DateTime?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
   deletedAt          DateTime?
 
-  settings      CompanySettings?
-  users         User[]
-  customers     Customer[]
-  motorcycles   Motorcycle[]
-  contracts     Contract[]
-  installments  Installment[]
-  payments      Payment[]
-  maintenances  Maintenance[]
-  documents     Document[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
+  settings       CompanySettings?
+  users          User[]
+  customers      Customer[]
+  motorcycles    Motorcycle[]
+  contracts      Contract[]
+  installments   Installment[]
+  payments       Payment[]
+  maintenances   Maintenance[]
+  documents      Document[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  contractEvents ContractEvent[]
 
   @@index([status])
   @@index([createdAt])
@@ -218,50 +245,52 @@ model User {
   updatedAt    DateTime   @updatedAt
   deletedAt    DateTime?
 
-  company             Company?                @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  customer            Customer?               @relation("CustomerUser", fields: [customerId], references: [id], onDelete: SetNull)
-  paymentsRegistered  Payment[]               @relation("PaymentRegisteredBy")
-  notificationsCreated Notification[]          @relation("NotificationCreatedBy")
-  auditLogs           AuditLog[]
+  company              Company?        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer             Customer?       @relation("CustomerUser", fields: [customerId], references: [id], onDelete: SetNull)
+  paymentsRegistered   Payment[]       @relation("PaymentRegisteredBy")
+  paymentsReversed     Payment[]       @relation("PaymentReversedBy")
+  contractEvents       ContractEvent[]
+  notificationsCreated Notification[]  @relation("NotificationCreatedBy")
+  auditLogs            AuditLog[]
 
   @@index([companyId, role])
   @@index([status])
 }
 
 model Customer {
-  id                         String         @id @default(cuid())
-  companyId                  String
-  fullName                   String
-  cpf                        String
-  birthDate                  DateTime?
-  email                      String?
-  phone                      String?
-  whatsapp                   String?
-  address                    String?
-  number                     String?
-  complement                 String?
-  district                   String?
-  city                       String?
-  state                      String?
-  zipCode                    String?
-  driverLicenseNumber        String?
-  driverLicenseCategory      String?
-  driverLicenseExpiration    DateTime?
-  identityNumber             String?
-  emergencyContactName       String?
-  emergencyContactPhone      String?
-  notes                      String?
-  status                     CustomerStatus @default(ACTIVE)
-  createdAt                  DateTime       @default(now())
-  updatedAt                  DateTime       @updatedAt
-  deletedAt                  DateTime?
+  id                      String         @id @default(cuid())
+  companyId               String
+  fullName                String
+  cpf                     String
+  birthDate               DateTime?
+  email                   String?
+  phone                   String?
+  whatsapp                String?
+  address                 String?
+  number                  String?
+  complement              String?
+  district                String?
+  city                    String?
+  state                   String?
+  zipCode                 String?
+  driverLicenseNumber     String?
+  driverLicenseCategory   String?
+  driverLicenseExpiration DateTime?
+  identityNumber          String?
+  emergencyContactName    String?
+  emergencyContactPhone   String?
+  notes                   String?
+  status                  CustomerStatus @default(ACTIVE)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  deletedAt               DateTime?
 
-  company          Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  user             User?                    @relation("CustomerUser")
-  currentMotorcycles Motorcycle[]           @relation("CurrentMotorcycleCustomer")
-  contracts        Contract[]
-  payments         Payment[]
-  documents        Document[]
+  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user                   User?                   @relation("CustomerUser")
+  currentMotorcycles     Motorcycle[]            @relation("CurrentMotorcycleCustomer")
+  contracts              Contract[]
+  payments               Payment[]
+  documents              Document[]
   notificationRecipients NotificationRecipient[]
 
   @@unique([companyId, cpf])
@@ -271,7 +300,7 @@ model Customer {
 }
 
 model Motorcycle {
-  id                String            @id @default(cuid())
+  id                String           @id @default(cuid())
   companyId         String
   currentCustomerId String?
   brand             String
@@ -293,8 +322,8 @@ model Motorcycle {
   updatedAt         DateTime         @updatedAt
   deletedAt         DateTime?
 
-  company         Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  currentCustomer Customer?    @relation("CurrentMotorcycleCustomer", fields: [currentCustomerId], references: [id], onDelete: SetNull)
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  currentCustomer Customer?     @relation("CurrentMotorcycleCustomer", fields: [currentCustomerId], references: [id], onDelete: SetNull)
   contracts       Contract[]
   maintenances    Maintenance[]
   documents       Document[]
@@ -307,45 +336,58 @@ model Motorcycle {
 }
 
 model Contract {
-  id                   String              @id @default(cuid())
-  companyId            String
-  customerId           String
-  motorcycleId         String
-  code                 String
-  type                 ContractType
-  startDate            DateTime
-  expectedEndDate      DateTime?
-  billingFrequency     BillingFrequency
-  firstDueDate         DateTime
-  weeklyDueDay         WeekDay?
-  monthlyDueDay        Int?
-  monthlyOverflowRule  MonthlyOverflowRule @default(LAST_VALID_DAY)
-  installmentAmount    Decimal             @db.Decimal(12, 2)
-  totalInstallments    Int
-  downPayment          Decimal             @default(0) @db.Decimal(12, 2)
-  totalAmount          Decimal             @db.Decimal(12, 2)
-  lateInterestAmount   Decimal             @default(0) @db.Decimal(12, 2)
-  lateFeeAmount        Decimal             @default(0) @db.Decimal(12, 2)
-  gracePeriodDays      Int                 @default(0)
-  initialMileage       Int?
-  mileageLimit         Int?
-  depositAmount        Decimal?            @db.Decimal(12, 2)
-  notes                String?
-  customTerms          String?
-  status               ContractStatus      @default(DRAFT)
-  activatedAt          DateTime?
-  completedAt          DateTime?
-  cancelledAt          DateTime?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  deletedAt            DateTime?
+  id                         String              @id @default(cuid())
+  companyId                  String
+  customerId                 String
+  motorcycleId               String
+  code                       String
+  type                       ContractType
+  startDate                  DateTime
+  expectedEndDate            DateTime?
+  billingFrequency           BillingFrequency
+  firstDueDate               DateTime
+  weeklyDueDay               WeekDay?
+  monthlyDueDay              Int?
+  monthlyOverflowRule        MonthlyOverflowRule @default(LAST_VALID_DAY)
+  installmentAmount          Decimal             @db.Decimal(12, 2)
+  totalInstallments          Int
+  downPayment                Decimal             @default(0) @db.Decimal(12, 2)
+  totalAmount                Decimal             @db.Decimal(12, 2)
+  lateInterestAmount         Decimal             @default(0) @db.Decimal(12, 2)
+  lateFeeAmount              Decimal             @default(0) @db.Decimal(12, 2)
+  gracePeriodDays            Int                 @default(0)
+  initialMileage             Int?
+  mileageLimit               Int?
+  depositAmount              Decimal?            @db.Decimal(12, 2)
+  notes                      String?
+  customTerms                String?
+  status                     ContractStatus      @default(DRAFT)
+  activatedAt                DateTime?
+  completedAt                DateTime?
+  cancelledAt                DateTime?
+  cancellationReason         String?
+  cancellationNotes          String?
+  terminatedAt               DateTime?
+  terminationReason          String?
+  terminationNotes           String?
+  suspendedAt                DateTime?
+  suspensionReason           String?
+  suspensionNotes            String?
+  suspensionExpectedResumeAt DateTime?
+  resumedAt                  DateTime?
+  resumeNotes                String?
+  closedByUserId             String?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  deletedAt                  DateTime?
 
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  motorcycle   Motorcycle    @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer     Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  motorcycle   Motorcycle      @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
   installments Installment[]
   payments     Payment[]
   documents    Document[]
+  events       ContractEvent[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -354,22 +396,27 @@ model Contract {
 }
 
 model Installment {
-  id             String            @id @default(cuid())
-  companyId      String
-  contractId     String
-  number         Int
-  dueDate        DateTime
-  originalAmount Decimal           @db.Decimal(12, 2)
-  penaltyAmount  Decimal           @default(0) @db.Decimal(12, 2)
-  interestAmount Decimal           @default(0) @db.Decimal(12, 2)
-  discountAmount Decimal           @default(0) @db.Decimal(12, 2)
-  finalAmount    Decimal           @db.Decimal(12, 2)
-  paidAmount     Decimal           @default(0) @db.Decimal(12, 2)
-  paymentDate    DateTime?
-  status         InstallmentStatus @default(PENDING)
-  note           String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  id                   String            @id @default(cuid())
+  companyId            String
+  contractId           String
+  number               Int
+  dueDate              DateTime
+  originalDueDate      DateTime?
+  originalAmount       Decimal           @db.Decimal(12, 2)
+  penaltyAmount        Decimal           @default(0) @db.Decimal(12, 2)
+  interestAmount       Decimal           @default(0) @db.Decimal(12, 2)
+  discountAmount       Decimal           @default(0) @db.Decimal(12, 2)
+  finalAmount          Decimal           @db.Decimal(12, 2)
+  paidAmount           Decimal           @default(0) @db.Decimal(12, 2)
+  paymentDate          DateTime?
+  status               InstallmentStatus @default(PENDING)
+  note                 String?
+  renegotiatedAt       DateTime?
+  renegotiatedByUserId String?
+  renegotiationReason  String?
+  renegotiationNotes   String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   contract Contract  @relation(fields: [contractId], references: [id], onDelete: Restrict)
@@ -391,9 +438,14 @@ model Payment {
   amountPaid         Decimal       @db.Decimal(12, 2)
   paymentDate        DateTime
   method             PaymentMethod
+  status             PaymentStatus @default(CONFIRMED)
   reference          String?
   note               String?
   receiptUrl         String?
+  reversedAt         DateTime?
+  reversedByUserId   String?
+  reversalReason     String?
+  reversalNotes      String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -402,28 +454,30 @@ model Payment {
   contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Restrict)
   installment  Installment? @relation(fields: [installmentId], references: [id], onDelete: Restrict)
   registeredBy User?        @relation("PaymentRegisteredBy", fields: [registeredByUserId], references: [id], onDelete: SetNull)
+  reversedBy   User?        @relation("PaymentReversedBy", fields: [reversedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, code])
   @@index([companyId, paymentDate])
   @@index([companyId, method])
+  @@index([companyId, status])
 }
 
 model Maintenance {
-  id                    String            @id @default(cuid())
-  companyId             String
-  motorcycleId          String
-  type                  MaintenanceType
-  description           String
-  date                  DateTime
-  mileage               Int?
-  amount                Decimal           @default(0) @db.Decimal(12, 2)
-  workshop              String?
-  nextMaintenanceDate   DateTime?
+  id                     String            @id @default(cuid())
+  companyId              String
+  motorcycleId           String
+  type                   MaintenanceType
+  description            String
+  date                   DateTime
+  mileage                Int?
+  amount                 Decimal           @default(0) @db.Decimal(12, 2)
+  workshop               String?
+  nextMaintenanceDate    DateTime?
   nextMaintenanceMileage Int?
-  status                MaintenanceStatus @default(SCHEDULED)
-  notes                 String?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  status                 MaintenanceStatus @default(SCHEDULED)
+  notes                  String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
   company    Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
   motorcycle Motorcycle @relation(fields: [motorcycleId], references: [id], onDelete: Restrict)
@@ -433,22 +487,22 @@ model Maintenance {
 }
 
 model Document {
-  id             String         @id @default(cuid())
-  companyId      String
-  customerId     String?
-  motorcycleId   String?
-  contractId     String?
-  name           String
-  type           DocumentType
-  number         String?
-  issueDate      DateTime?
-  expirationDate DateTime?
-  fileUrl        String
-  note           String?
-  visibleToCustomer Boolean    @default(false)
-  status         DocumentStatus @default(VALID)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  companyId         String
+  customerId        String?
+  motorcycleId      String?
+  contractId        String?
+  name              String
+  type              DocumentType
+  number            String?
+  issueDate         DateTime?
+  expirationDate    DateTime?
+  fileUrl           String
+  note              String?
+  visibleToCustomer Boolean        @default(false)
+  status            DocumentStatus @default(VALID)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   customer   Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -513,4 +567,23 @@ model AuditLog {
 
   @@index([companyId, createdAt])
   @@index([entity, entityId])
+}
+
+model ContractEvent {
+  id          String            @id @default(cuid())
+  companyId   String
+  contractId  String
+  userId      String?
+  type        ContractEventType
+  title       String
+  description String
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, contractId, createdAt])
+  @@index([companyId, type])
 }

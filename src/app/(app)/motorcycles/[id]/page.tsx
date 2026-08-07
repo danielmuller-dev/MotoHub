@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireCompanyRole } from "@/lib/auth";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { sumConfirmedPayments } from "@/lib/payment-totals";
 import { prisma } from "@/lib/prisma";
 
 export default async function MotorcycleDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -99,7 +100,7 @@ export default async function MotorcycleDetailPage({ params }: { params: Promise
                 <div className="grid gap-3 sm:grid-cols-3">
                   <Info label="Inicio" value={formatDate(activeContract.startDate)} />
                   <Info label="Total" value={formatCurrency(activeContract.totalAmount)} />
-                  <Info label="Pagamentos" value={formatCurrency(activeContract.payments.reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0))} />
+                  <Info label="Pagamentos" value={formatCurrency(sumConfirmedPayments(activeContract.payments))} />
                 </div>
               </div>
             ) : (

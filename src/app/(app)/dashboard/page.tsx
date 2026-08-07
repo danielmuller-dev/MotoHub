@@ -89,6 +89,7 @@ export default async function DashboardPage({
     prisma.payment.aggregate({
       where: {
         companyId: user.companyId!,
+        status: "CONFIRMED",
         paymentDate: { gte: period.start, lte: period.end }
       },
       _sum: { amountPaid: true }
@@ -96,6 +97,7 @@ export default async function DashboardPage({
     prisma.payment.aggregate({
       where: {
         companyId: user.companyId!,
+        status: "CONFIRMED",
         paymentDate: {
           gte: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1, 12)),
           lte: new Date()
@@ -104,7 +106,7 @@ export default async function DashboardPage({
       _sum: { amountPaid: true }
     }),
     prisma.payment.findMany({
-      where: { companyId: user.companyId! },
+      where: { companyId: user.companyId!, status: "CONFIRMED" },
       orderBy: { paymentDate: "desc" },
       take: 6,
       include: { customer: true, installment: true }
@@ -152,6 +154,7 @@ export default async function DashboardPage({
     prisma.payment.findMany({
       where: {
         companyId: user.companyId!,
+        status: "CONFIRMED",
         paymentDate: { gte: period.start, lte: period.end }
       },
       select: { amountPaid: true, paymentDate: true }

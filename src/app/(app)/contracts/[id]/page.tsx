@@ -1,21 +1,41 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { cancelContractAction, registerPaymentAction } from "@/app/actions";
-import { ContractStatusBadge, InstallmentStatusBadge, MotorcycleStatusBadge } from "@/components/status-badge";
+import {
+  cancelContractAction,
+  registerPaymentAction,
+  renegotiateInstallmentAction,
+  resumeContractAction,
+  reversePaymentAction,
+  suspendContractAction,
+  terminateContractAction,
+  updateContractAction
+} from "@/app/actions";
+import {
+  ContractStatusBadge,
+  InstallmentStatusBadge,
+  MotorcycleStatusBadge,
+  PaymentStatusBadge
+} from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Field, SelectField, TextArea } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress";
 import { requireCompanyRole } from "@/lib/auth";
+import { getContractActionsForStatus, isFinalContractStatus } from "@/lib/contract-lifecycle";
 import {
   billingFrequencyLabels,
   contractTypeLabels,
   formatCurrency,
   formatDate,
+  formatDateInput,
+  formatDateTime,
   paymentMethodLabels,
   weekDayLabels
 } from "@/lib/format";
+import { sumConfirmedPayments } from "@/lib/payment-totals";
 import { prisma } from "@/lib/prisma";
 import { installmentBalance } from "@/services/installments";
 import {
@@ -45,6 +65,32 @@ const sortLabels = {
   status: "Status"
 };
 
+const terminationReasons = [
+  "Acordo entre as partes",
+  "Devolucao voluntaria",
+  "Troca de moto",
+  "Inadimplencia",
+  "Venda direta",
+  "Encerramento administrativo",
+  "Outro"
+];
+
+const cancellationReasons = [
+  "Erro no cadastro",
+  "Desistencia antes da operacao",
+  "Acordo administrativo",
+  "Inadimplencia",
+  "Outro"
+];
+
+const suspensionReasons = [
+  "Analise administrativa",
+  "Inadimplencia temporaria",
+  "Moto indisponivel",
+  "Acordo entre as partes",
+  "Outro"
+];
+
 export default async function ContractDetailPage({
   params,
   searchParams
@@ -60,7 +106,14 @@ export default async function ContractDetailPage({
     include: {
       customer: true,
       motorcycle: true,
-      payments: { orderBy: { paymentDate: "desc" }, include: { registeredBy: true } }
+      payments: {
+        orderBy: { paymentDate: "desc" },
+        include: {
+          installment: true,
+          registeredBy: true,
+          reversedBy: true
+        }
+      }
     }
   });
 
@@ -77,17 +130,12 @@ export default async function ContractDetailPage({
   const installmentOrderBy = getContractInstallmentOrderBy(installmentQuery.sort);
 
   const [
-    auditLogs,
     paidInstallments,
     overdueInstallments,
     pendingInstallments,
-    totalFilteredInstallments
+    totalFilteredInstallments,
+    contractEvents
   ] = await Promise.all([
-    prisma.auditLog.findMany({
-      where: { companyId: user.companyId!, entity: "Contract", entityId: contract.id },
-      orderBy: { createdAt: "desc" },
-      take: 8
-    }),
     prisma.installment.count({ where: { companyId: user.companyId!, contractId: contract.id, status: "PAID" } }),
     prisma.installment.count({ where: { companyId: user.companyId!, contractId: contract.id, status: "OVERDUE" } }),
     prisma.installment.count({
@@ -97,23 +145,53 @@ export default async function ContractDetailPage({
         status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] }
       }
     }),
-    prisma.installment.count({ where: installmentWhere })
+    prisma.installment.count({ where: installmentWhere }),
+    prisma.contractEvent.findMany({
+      where: { companyId: user.companyId!, contractId: contract.id },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      include: { user: true }
+    })
   ]);
 
   const pagination = getContractInstallmentPagination(installmentQuery, totalFilteredInstallments);
   const pagedInstallments = await prisma.installment.findMany({
     where: installmentWhere,
-  orderBy: installmentOrderBy,
-  skip: pagination.skip,
-  take: pagination.take
-});
+    orderBy: installmentOrderBy,
+    skip: pagination.skip,
+    take: pagination.take
+  });
   const normalizedInstallmentQuery = { ...installmentQuery, page: pagination.page };
   const currentInstallmentsHref = buildContractInstallmentsHref(contract.id, normalizedInstallmentQuery);
 
-  const totalPaid = contract.payments.reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0);
+  const paymentIds = contract.payments.map((payment) => payment.id);
+  const pagedInstallmentIds = pagedInstallments.map((installment) => installment.id);
+  const auditScopes = [
+    { entity: "Contract", entityId: contract.id },
+    ...(paymentIds.length ? [{ entity: "Payment", entityId: { in: paymentIds } }] : []),
+    ...(pagedInstallmentIds.length ? [{ entity: "Installment", entityId: { in: pagedInstallmentIds } }] : [])
+  ];
+  const auditLogs = await prisma.auditLog.findMany({
+    where: {
+      companyId: user.companyId!,
+      OR: auditScopes
+    },
+    orderBy: { createdAt: "desc" },
+    take: 10
+  });
+
+  const totalPaid = sumConfirmedPayments(contract.payments);
+  const confirmedPayments = contract.payments.filter((payment) => payment.status === "CONFIRMED");
+  const reversedPayments = contract.payments.filter((payment) => payment.status === "REVERSED");
   const totalAmount = contract.totalAmount.toNumber();
   const remaining = Math.max(totalAmount - totalPaid, 0);
   const progress = totalAmount ? (totalPaid / totalAmount) * 100 : 0;
+  const today = new Date();
+  const todayInput = today.toISOString().slice(0, 10);
+  const actions = getContractActionsForStatus(contract.status);
+  const isAdmin = user.role === "COMPANY_ADMIN";
+  const canRenegotiate = user.role === "COMPANY_ADMIN" || user.role === "EMPLOYEE";
+  const isFinal = isFinalContractStatus(contract.status);
 
   return (
     <>
@@ -122,14 +200,34 @@ export default async function ContractDetailPage({
         description="Detalhes do contrato, parcelas, pagamentos e historico."
         breadcrumbs={[{ label: "Contratos", href: "/contracts" }, { label: contract.code }]}
         action={
-          user.role === "COMPANY_ADMIN" && ["ACTIVE", "OVERDUE", "SUSPENDED", "DRAFT"].includes(contract.status) ? (
-            <form action={cancelContractAction}>
-              <input type="hidden" name="contractId" value={contract.id} />
-              <ConfirmSubmitButton label="Cancelar contrato" message="Cancelar este contrato sem apagar historico financeiro?" />
-            </form>
-          ) : null
+          <ContractActionBar
+            actions={actions}
+            contractId={contract.id}
+            customerId={contract.customerId}
+            motorcycleId={contract.motorcycleId}
+            isAdmin={isAdmin}
+          />
         }
       />
+
+      {isAdmin && ["ACTIVE", "OVERDUE", "DRAFT"].includes(contract.status) ? (
+        <EditContractPanel contract={contract} returnTo={currentInstallmentsHref} />
+      ) : null}
+
+      {isAdmin && !isFinal ? (
+        <LifecyclePanels
+          contractId={contract.id}
+          returnTo={currentInstallmentsHref}
+          status={contract.status}
+          todayInput={todayInput}
+          totalAmount={totalAmount}
+          totalPaid={totalPaid}
+          remaining={remaining}
+          paidInstallments={paidInstallments}
+          pendingInstallments={pendingInstallments}
+          overdueInstallments={overdueInstallments}
+        />
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <Card>
@@ -151,6 +249,9 @@ export default async function ContractDetailPage({
             <Info label="Total contrato" value={formatCurrency(contract.totalAmount)} />
             <Info label="Entrada" value={formatCurrency(contract.downPayment)} />
             <Info label="Caucao" value={formatCurrency(contract.depositAmount)} />
+            {contract.terminatedAt ? <Info label="Encerrado em" value={formatDate(contract.terminatedAt)} /> : null}
+            {contract.cancelledAt ? <Info label="Cancelado em" value={formatDate(contract.cancelledAt)} /> : null}
+            {contract.suspendedAt ? <Info label="Suspenso em" value={formatDate(contract.suspendedAt)} /> : null}
           </CardContent>
         </Card>
 
@@ -180,7 +281,7 @@ export default async function ContractDetailPage({
       <Card className="mt-6">
         <CardHeader
           title="Parcelas"
-          description={`${contract.totalInstallments} parcela(s) no contrato. Registre pagamentos completos ou parciais.`}
+          description={`${contract.totalInstallments} parcela(s) no contrato. Registre pagamentos completos, parciais ou renegocie saldos em aberto.`}
         />
         <CardContent>
           <form className="mb-4 grid gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 xl:grid-cols-[170px_minmax(210px,1fr)_210px_170px_auto]">
@@ -252,7 +353,7 @@ export default async function ContractDetailPage({
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-[1120px] text-left text-sm">
               <thead className="text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Numero</th>
@@ -261,14 +362,24 @@ export default async function ContractDetailPage({
                   <th className="px-3 py-2">Pago</th>
                   <th className="px-3 py-2">Saldo</th>
                   <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Registrar pagamento</th>
+                  <th className="px-3 py-2">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pagedInstallments.map((installment) => {
                   const balance = installmentBalance(installment).toNumber();
+                  const canRegisterPayment =
+                    balance > 0 &&
+                    actions.includes("REGISTER_PAYMENT") &&
+                    installment.status !== "CANCELLED";
+                  const canRenegotiateInstallment =
+                    canRenegotiate &&
+                    !isFinal &&
+                    contract.status !== "SUSPENDED" &&
+                    ["PENDING", "OVERDUE", "PARTIALLY_PAID"].includes(installment.status);
+
                   return (
-                    <tr key={installment.id}>
+                    <tr key={installment.id} className="align-top">
                       <td className="px-3 py-3">{installment.number}</td>
                       <td className="px-3 py-3">{formatDate(installment.dueDate)}</td>
                       <td className="px-3 py-3">{formatCurrency(installment.finalAmount)}</td>
@@ -276,22 +387,31 @@ export default async function ContractDetailPage({
                       <td className="px-3 py-3">{formatCurrency(balance)}</td>
                       <td className="px-3 py-3"><InstallmentStatusBadge status={installment.status} /></td>
                       <td className="px-3 py-3">
-                        {balance > 0 && contract.status !== "CANCELLED" ? (
-                          <form action={registerPaymentAction} className="grid gap-2 md:grid-cols-[110px_130px_130px_auto]">
-                            <input type="hidden" name="installmentId" value={installment.id} />
-                            <input type="hidden" name="returnTo" value={currentInstallmentsHref} />
-                            <input name="amountPaid" type="number" min="0.01" max={balance} step="0.01" defaultValue={balance.toFixed(2)} className="h-9 min-w-0 rounded-md border border-slate-200 px-2 text-sm" />
-                            <input name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className="h-9 min-w-0 rounded-md border border-slate-200 px-2 text-sm" />
-                            <select name="method" defaultValue="PIX" className="h-9 min-w-0 rounded-md border border-slate-200 px-2 text-sm">
-                              {Object.entries(paymentMethodLabels).map(([value, label]) => (
-                                <option key={value} value={value}>{label}</option>
-                              ))}
-                            </select>
-                            <Button type="submit" size="sm" variant="secondary">Registrar</Button>
-                          </form>
-                        ) : (
-                          "-"
-                        )}
+                        <div className="grid gap-2">
+                          {canRegisterPayment ? (
+                            <form action={registerPaymentAction} className="grid gap-2 md:grid-cols-[110px_130px_130px_auto]">
+                              <input type="hidden" name="installmentId" value={installment.id} />
+                              <input type="hidden" name="returnTo" value={currentInstallmentsHref} />
+                              <input name="amountPaid" type="number" min="0.01" max={balance} step="0.01" defaultValue={balance.toFixed(2)} className="h-9 min-w-0 rounded-md border border-slate-200 px-2 text-sm" />
+                              <input name="paymentDate" type="date" defaultValue={todayInput} className="h-9 min-w-0 rounded-md border border-slate-200 px-2 text-sm" />
+                              <select name="method" defaultValue="PIX" className="h-9 min-w-0 rounded-md border border-slate-200 px-2 text-sm">
+                                {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                              </select>
+                              <Button type="submit" size="sm" variant="secondary">Registrar</Button>
+                            </form>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                          {canRenegotiateInstallment ? (
+                            <RenegotiateInstallmentForm
+                              contractId={contract.id}
+                              installment={installment}
+                              returnTo={currentInstallmentsHref}
+                            />
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -312,35 +432,432 @@ export default async function ContractDetailPage({
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Pagamentos" />
+          <CardHeader title="Lista de pagamentos" description={`${confirmedPayments.length} pagamento(s) confirmado(s).`} />
           <CardContent className="grid gap-3">
-            {contract.payments.map((payment) => (
-              <Link key={payment.id} href={`/payments/${payment.id}`} className="rounded-md border border-slate-100 p-3 hover:bg-slate-50">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">{payment.code}</p>
-                  <p className="font-semibold text-petrol">{formatCurrency(payment.amountPaid)}</p>
+            {contract.payments.length ? (
+              contract.payments.map((payment) => (
+                <div key={payment.id} className="rounded-md border border-slate-100 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <Link href={`/payments/${payment.id}`} className="font-medium text-petrol hover:underline">
+                      {payment.code}
+                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PaymentStatusBadge status={payment.status} />
+                      <p className="font-semibold text-petrol">{formatCurrency(payment.amountPaid)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Parcela {payment.installment?.number ?? "-"} | {formatDate(payment.paymentDate)} | {payment.registeredBy?.name || "Responsavel nao informado"}
+                  </p>
+                  {payment.status === "REVERSED" ? (
+                    <p className="mt-2 text-xs text-red-700">
+                      Estornado em {formatDate(payment.reversedAt)} por {payment.reversedBy?.name || "responsavel nao informado"}.
+                    </p>
+                  ) : null}
+                  {isAdmin && payment.status === "CONFIRMED" ? (
+                    <ReversePaymentForm paymentId={payment.id} returnTo={currentInstallmentsHref} />
+                  ) : null}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  {formatDate(payment.paymentDate)} | {payment.registeredBy?.name || "Responsavel nao informado"}
-                </p>
-              </Link>
-            ))}
+              ))
+            ) : (
+              <EmptyState title="Sem pagamentos" description="Nenhum pagamento foi registrado neste contrato." />
+            )}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader title="Historico" />
+          <CardHeader title="Lista de estornos" description={`${reversedPayments.length} estorno(s) registrado(s).`} />
           <CardContent className="grid gap-3">
-            {auditLogs.map((log) => (
-              <div key={log.id} className="rounded-md border border-slate-100 p-3">
-                <p className="font-medium">{log.description}</p>
-                <p className="mt-1 text-xs text-slate-500">{formatDate(log.createdAt)}</p>
-              </div>
-            ))}
+            {reversedPayments.length ? (
+              reversedPayments.map((payment) => (
+                <div key={payment.id} className="rounded-md border border-red-100 bg-red-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-red-950">{payment.code}</p>
+                    <p className="font-semibold text-red-700">{formatCurrency(payment.amountPaid)}</p>
+                  </div>
+                  <p className="mt-1 text-sm text-red-700">
+                    {payment.reversalReason || "Motivo nao informado"} | {formatDate(payment.reversedAt)}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="Sem estornos" description="Nenhum pagamento deste contrato foi estornado." />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-2" id="historico-contrato">
+        <Card>
+          <CardHeader title="Historico do contrato" />
+          <CardContent className="grid gap-3">
+            {contractEvents.length ? (
+              contractEvents.map((event) => (
+                <div key={event.id} className="rounded-md border border-slate-100 p-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="font-medium">{event.title}</p>
+                    <p className="text-xs text-slate-500">{formatDateTime(event.createdAt)}</p>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">{event.description}</p>
+                  <p className="mt-2 text-xs text-slate-400">
+                    {event.user?.name || "Responsavel nao informado"}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="Sem eventos" description="As novas acoes deste contrato aparecerao aqui." />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader title="Auditoria resumida" description="Acoes relacionadas a este contrato, pagamentos e parcelas desta pagina." />
+          <CardContent className="grid gap-3">
+            {auditLogs.length ? (
+              auditLogs.map((log) => (
+                <div key={log.id} className="rounded-md border border-slate-100 p-3">
+                  <p className="font-medium">{log.description}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {log.action} | {formatDateTime(log.createdAt)}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="Sem auditoria" description="Nenhuma alteracao auditada foi encontrada para o filtro atual." />
+            )}
           </CardContent>
         </Card>
       </div>
     </>
+  );
+}
+
+function ContractActionBar({
+  actions,
+  contractId,
+  customerId,
+  motorcycleId,
+  isAdmin
+}: {
+  actions: ReturnType<typeof getContractActionsForStatus>;
+  contractId: string;
+  customerId: string;
+  motorcycleId: string;
+  isAdmin: boolean;
+}) {
+  const buttonClass =
+    "inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-asphalt hover:bg-slate-50";
+  const primaryClass =
+    "inline-flex h-9 items-center justify-center rounded-md bg-asphalt px-3 text-sm font-medium text-white hover:bg-graphite";
+
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      {actions.includes("EDIT") ? (
+        isAdmin ? (
+          <a href="#editar-contrato" className={buttonClass}>
+            Editar
+          </a>
+        ) : (
+        <span className="inline-flex h-9 items-center justify-center rounded-md border border-slate-100 px-3 text-sm font-medium text-slate-400" title="Somente administradores podem editar contratos.">
+          Editar
+        </span>
+        )
+      ) : null}
+      {actions.includes("REGISTER_PAYMENT") ? (
+        <Link href={`/payments?customerId=${customerId}`} className={primaryClass}>
+          Registrar pagamento
+        </Link>
+      ) : null}
+      {actions.includes("VIEW_CUSTOMER") ? (
+        <Link href={`/customers/${customerId}`} className={buttonClass}>
+          Ver cliente
+        </Link>
+      ) : null}
+      {actions.includes("VIEW_MOTORCYCLE") ? (
+        <Link href={`/motorcycles/${motorcycleId}`} className={buttonClass}>
+          Ver moto
+        </Link>
+      ) : null}
+      {actions.includes("PRINT") ? (
+        <Link href={`/contracts/${contractId}/print`} className={buttonClass}>
+          Imprimir
+        </Link>
+      ) : null}
+      {actions.includes("VIEW_HISTORY") ? (
+        <Link href="#historico-contrato" className={buttonClass}>
+          Ver historico
+        </Link>
+      ) : null}
+      {isAdmin && actions.some((action) => ["SUSPEND", "RESUME", "TERMINATE", "CANCEL"].includes(action)) ? (
+        <a href="#acoes-do-contrato" className={buttonClass}>
+          Acoes do contrato
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function EditContractPanel({
+  contract,
+  returnTo
+}: {
+  contract: {
+    id: string;
+    expectedEndDate: Date | null;
+    lateInterestAmount: { toNumber(): number };
+    lateFeeAmount: { toNumber(): number };
+    gracePeriodDays: number;
+    mileageLimit: number | null;
+    notes: string | null;
+    customTerms: string | null;
+  };
+  returnTo: string;
+}) {
+  return (
+    <details id="editar-contrato" className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-asphalt">Editar contrato</summary>
+      <form action={updateContractAction} className="mt-4 grid gap-4">
+        <input type="hidden" name="contractId" value={contract.id} />
+        <input type="hidden" name="returnTo" value={returnTo} />
+        <div className="form-grid-3">
+          <Field label="Termino previsto" name="expectedEndDate" type="date" defaultValue={formatDateInput(contract.expectedEndDate)} />
+          <Field label="Multa atraso" name="lateFeeAmount" type="number" step="0.01" defaultValue={contract.lateFeeAmount.toNumber()} />
+          <Field label="Juros atraso" name="lateInterestAmount" type="number" step="0.01" defaultValue={contract.lateInterestAmount.toNumber()} />
+          <Field label="Tolerancia" name="gracePeriodDays" type="number" min={0} defaultValue={contract.gracePeriodDays} />
+          <Field label="Limite de km" name="mileageLimit" type="number" min={0} defaultValue={contract.mileageLimit} />
+        </div>
+        <TextArea label="Observacoes" name="notes" defaultValue={contract.notes} rows={3} />
+        <TextArea label="Termos personalizados" name="customTerms" defaultValue={contract.customTerms} rows={4} />
+        <Button type="submit" variant="secondary">Salvar alteracoes</Button>
+      </form>
+    </details>
+  );
+}
+
+function LifecyclePanels({
+  contractId,
+  returnTo,
+  status,
+  todayInput,
+  totalAmount,
+  totalPaid,
+  remaining,
+  paidInstallments,
+  pendingInstallments,
+  overdueInstallments
+}: {
+  contractId: string;
+  returnTo: string;
+  status: string;
+  todayInput: string;
+  totalAmount: number;
+  totalPaid: number;
+  remaining: number;
+  paidInstallments: number;
+  pendingInstallments: number;
+  overdueInstallments: number;
+}) {
+  return (
+    <div id="acoes-do-contrato" className="mb-6 grid gap-3 rounded-lg border border-slate-200 bg-white p-4 xl:grid-cols-2">
+      {["ACTIVE", "OVERDUE"].includes(status) ? (
+        <ActionDetails title="Suspender contrato">
+          <form action={suspendContractAction} className="grid gap-4">
+            <input type="hidden" name="contractId" value={contractId} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <div className="form-grid-2">
+              <Field label="Data de inicio" name="suspendedAt" type="date" defaultValue={todayInput} required />
+              <Field label="Retorno previsto" name="expectedResumeAt" type="date" />
+            </div>
+            <SelectField label="Motivo" name="suspensionReason" required>
+              {suspensionReasons.map((reason) => (
+                <option key={reason} value={reason}>{reason}</option>
+              ))}
+            </SelectField>
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="freezeDueDates" className="mt-1" />
+              Congelar vencimentos futuros apenas como registro no MVP.
+            </label>
+            <TextArea label="Observacao" name="suspensionNotes" rows={3} />
+            <Button type="submit" variant="secondary">Suspender contrato</Button>
+          </form>
+        </ActionDetails>
+      ) : null}
+
+      {status === "SUSPENDED" ? (
+        <ActionDetails title="Retomar contrato">
+          <form action={resumeContractAction} className="grid gap-4">
+            <input type="hidden" name="contractId" value={contractId} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <Field label="Data de retomada" name="resumedAt" type="date" defaultValue={todayInput} required />
+            <TextArea label="Observacao" name="resumeNotes" rows={3} />
+            <Button type="submit" variant="secondary">Retomar contrato</Button>
+          </form>
+        </ActionDetails>
+      ) : null}
+
+      {["ACTIVE", "OVERDUE", "SUSPENDED", "DRAFT"].includes(status) ? (
+        <ActionDetails title="Encerrar contrato">
+          <LifecycleSummary
+            totalAmount={totalAmount}
+            totalPaid={totalPaid}
+            remaining={remaining}
+            paidInstallments={paidInstallments}
+            pendingInstallments={pendingInstallments}
+            overdueInstallments={overdueInstallments}
+          />
+          <form action={terminateContractAction} className="mt-4 grid gap-4">
+            <input type="hidden" name="contractId" value={contractId} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <Field label="Data do encerramento" name="terminatedAt" type="date" defaultValue={todayInput} required />
+            <SelectField label="Motivo" name="terminationReason" required>
+              {terminationReasons.map((reason) => (
+                <option key={reason} value={reason}>{reason}</option>
+              ))}
+            </SelectField>
+            <TextArea label="Observacao obrigatoria" name="terminationNotes" rows={3} />
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="cancelFutureInstallments" defaultChecked className="mt-1" />
+              Cancelar parcelas futuras pendentes e manter parcelas vencidas em aberto.
+            </label>
+            <SelectField label="Situacao da moto" name="motorcycleDisposition" defaultValue="AVAILABLE">
+              <option value="AVAILABLE">Tornar disponivel</option>
+              <option value="MAINTENANCE">Colocar em manutencao</option>
+              <option value="BLOCKED">Manter bloqueada</option>
+              <option value="SOLD">Marcar como vendida</option>
+            </SelectField>
+            <ConfirmSubmitButton label="Encerrar contrato" message="Confirmar encerramento antecipado deste contrato?" />
+          </form>
+        </ActionDetails>
+      ) : null}
+
+      {["ACTIVE", "OVERDUE", "SUSPENDED", "DRAFT"].includes(status) ? (
+        <ActionDetails title="Cancelar contrato">
+          <LifecycleSummary
+            totalAmount={totalAmount}
+            totalPaid={totalPaid}
+            remaining={remaining}
+            paidInstallments={paidInstallments}
+            pendingInstallments={pendingInstallments}
+            overdueInstallments={overdueInstallments}
+          />
+          <form action={cancelContractAction} className="mt-4 grid gap-4">
+            <input type="hidden" name="contractId" value={contractId} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <Field label="Data do cancelamento" name="cancelledAt" type="date" defaultValue={todayInput} required />
+            <SelectField label="Motivo" name="cancellationReason" required>
+              {cancellationReasons.map((reason) => (
+                <option key={reason} value={reason}>{reason}</option>
+              ))}
+            </SelectField>
+            <TextArea label="Observacao obrigatoria" name="cancellationNotes" rows={3} />
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="cancelFutureInstallments" defaultChecked className="mt-1" />
+              Cancelar parcelas futuras pendentes.
+            </label>
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="releaseMotorcycle" defaultChecked className="mt-1" />
+              Liberar a moto como disponivel.
+            </label>
+            <ConfirmSubmitButton label="Cancelar contrato" message="Confirmar cancelamento sem apagar o historico financeiro?" />
+          </form>
+        </ActionDetails>
+      ) : null}
+    </div>
+  );
+}
+
+function LifecycleSummary({
+  totalAmount,
+  totalPaid,
+  remaining,
+  paidInstallments,
+  pendingInstallments,
+  overdueInstallments
+}: {
+  totalAmount: number;
+  totalPaid: number;
+  remaining: number;
+  paidInstallments: number;
+  pendingInstallments: number;
+  overdueInstallments: number;
+}) {
+  return (
+    <div className="grid gap-2 rounded-md border border-slate-100 bg-slate-50 p-3 text-sm sm:grid-cols-3">
+      <Info label="Total" value={formatCurrency(totalAmount)} />
+      <Info label="Pago" value={formatCurrency(totalPaid)} />
+      <Info label="Saldo" value={formatCurrency(remaining)} />
+      <Info label="Pagas" value={paidInstallments} />
+      <Info label="Pendentes" value={pendingInstallments} />
+      <Info label="Atrasadas" value={overdueInstallments} />
+    </div>
+  );
+}
+
+function RenegotiateInstallmentForm({
+  contractId,
+  installment,
+  returnTo
+}: {
+  contractId: string;
+  installment: {
+    id: string;
+    dueDate: Date;
+    discountAmount: { toNumber(): number };
+    penaltyAmount: { toNumber(): number };
+    interestAmount: { toNumber(): number };
+    finalAmount: { toNumber(): number };
+    originalAmount: { toNumber(): number };
+    paidAmount: { toNumber(): number };
+  };
+  returnTo: string;
+}) {
+  return (
+    <details className="rounded-md border border-slate-100 bg-slate-50 p-2">
+      <summary className="cursor-pointer text-sm font-medium text-petrol">Renegociar parcela</summary>
+      <form action={renegotiateInstallmentAction} className="mt-3 grid gap-3">
+        <input type="hidden" name="contractId" value={contractId} />
+        <input type="hidden" name="installmentId" value={installment.id} />
+        <input type="hidden" name="returnTo" value={returnTo} />
+        <div className="grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
+          <span>Atual: {formatDate(installment.dueDate)}</span>
+          <span>Original: {formatCurrency(installment.originalAmount)}</span>
+          <span>Pago: {formatCurrency(installment.paidAmount)}</span>
+        </div>
+        <div className="form-grid-3">
+          <Field label="Novo vencimento" name="newDueDate" type="date" defaultValue={formatDateInput(installment.dueDate)} required />
+          <Field label="Desconto" name="discountAmount" type="number" step="0.01" defaultValue={installment.discountAmount.toNumber()} />
+          <Field label="Multa" name="penaltyAmount" type="number" step="0.01" defaultValue={installment.penaltyAmount.toNumber()} />
+          <Field label="Juros" name="interestAmount" type="number" step="0.01" defaultValue={installment.interestAmount.toNumber()} />
+        </div>
+        <Field label="Motivo" name="renegotiationReason" required />
+        <TextArea label="Observacao" name="renegotiationNotes" rows={2} />
+        <Button type="submit" size="sm" variant="secondary">Salvar renegociacao</Button>
+      </form>
+    </details>
+  );
+}
+
+function ReversePaymentForm({ paymentId, returnTo }: { paymentId: string; returnTo: string }) {
+  return (
+    <details className="mt-3 rounded-md border border-red-100 bg-red-50 p-3">
+      <summary className="cursor-pointer text-sm font-medium text-red-700">Estornar pagamento</summary>
+      <form action={reversePaymentAction} className="mt-3 grid gap-3">
+        <input type="hidden" name="paymentId" value={paymentId} />
+        <input type="hidden" name="returnTo" value={returnTo} />
+        <Field label="Motivo" name="reversalReason" required />
+        <TextArea label="Observacao obrigatoria" name="reversalNotes" rows={2} />
+        <ConfirmSubmitButton label="Confirmar estorno" message="Confirmar estorno deste pagamento e reabrir o saldo da parcela?" />
+      </form>
+    </details>
+  );
+}
+
+function ActionDetails({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <details className="rounded-lg border border-slate-100 bg-slate-50 p-3" open={false}>
+      <summary className="cursor-pointer text-sm font-semibold text-asphalt">{title}</summary>
+      <div className="mt-4">{children}</div>
+    </details>
   );
 }
 

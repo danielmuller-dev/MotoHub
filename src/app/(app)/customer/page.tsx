@@ -8,12 +8,13 @@ import { ProgressBar } from "@/components/ui/progress";
 import { StatCard } from "@/components/ui/stat-card";
 import { getCustomerPortalData, maskPlate } from "@/lib/customer-data";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { sumConfirmedPayments } from "@/lib/payment-totals";
 
 export default async function CustomerHomePage() {
   const { customer, activeContract } = await getCustomerPortalData();
   const installments = activeContract?.installments ?? [];
   const payments = activeContract?.payments ?? [];
-  const totalPaid = payments.reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0);
+  const totalPaid = sumConfirmedPayments(payments);
   const total = activeContract?.totalAmount.toNumber() ?? 0;
   const progress = total ? (totalPaid / total) * 100 : 0;
   const nextInstallment = installments.find((installment) =>

@@ -10,6 +10,7 @@ import {
   formatCurrency,
   formatDate
 } from "@/lib/format";
+import { sumConfirmedPayments } from "@/lib/payment-totals";
 
 export default async function CustomerContractPage() {
   const { activeContract } = await getCustomerPortalData();
@@ -23,7 +24,7 @@ export default async function CustomerContractPage() {
     );
   }
 
-  const totalPaid = activeContract.payments.reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0);
+  const totalPaid = sumConfirmedPayments(activeContract.payments);
   const total = activeContract.totalAmount.toNumber();
   const progress = total ? (totalPaid / total) * 100 : 0;
 

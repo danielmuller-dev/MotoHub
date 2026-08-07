@@ -11,6 +11,7 @@ import {
   formatCurrency,
   formatDate
 } from "@/lib/format";
+import { sumConfirmedPayments } from "@/lib/payment-totals";
 import { prisma } from "@/lib/prisma";
 
 export default async function ContractsPage({
@@ -84,8 +85,10 @@ export default async function ContractsPage({
                 <option value="">Todos os status</option>
                 <option value="ACTIVE">Ativos</option>
                 <option value="OVERDUE">Atrasados</option>
+                <option value="SUSPENDED">Suspensos</option>
                 <option value="COMPLETED">Concluidos</option>
                 <option value="CANCELLED">Cancelados</option>
+                <option value="TERMINATED">Encerrados</option>
               </select>
               <select name="type" defaultValue={type ?? ""} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
                 <option value="">Todos os tipos</option>
@@ -100,7 +103,7 @@ export default async function ContractsPage({
             {contracts.length ? (
               <div className="grid gap-3">
                 {contracts.map((contract) => {
-                  const paid = contract.payments.reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0);
+                  const paid = sumConfirmedPayments(contract.payments);
                   const progress = contract.totalAmount.toNumber()
                     ? Math.min((paid / contract.totalAmount.toNumber()) * 100, 100)
                     : 0;

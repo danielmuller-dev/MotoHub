@@ -55,7 +55,9 @@ export async function updateOverdueInstallments(companyId?: string) {
     where,
     select: {
       id: true,
-      contractId: true
+      companyId: true,
+      contractId: true,
+      number: true
     }
   });
 
@@ -80,6 +82,20 @@ export async function updateOverdueInstallments(companyId?: string) {
     data: {
       status: "OVERDUE"
     }
+  });
+
+  await prisma.contractEvent.createMany({
+    data: overdue.map((installment) => ({
+      companyId: installment.companyId,
+      contractId: installment.contractId,
+      type: "INSTALLMENT_OVERDUE",
+      title: "Parcela atrasada",
+      description: `Parcela ${installment.number} marcada como atrasada.`,
+      metadata: {
+        installmentId: installment.id,
+        installmentNumber: installment.number
+      }
+    }))
   });
 
   return overdue.length;

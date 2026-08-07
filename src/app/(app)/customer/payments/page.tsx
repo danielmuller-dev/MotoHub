@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PaymentStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -24,6 +25,7 @@ export default async function CustomerPaymentsPage() {
                     <th className="px-3 py-2">Data</th>
                     <th className="px-3 py-2">Valor</th>
                     <th className="px-3 py-2">Forma</th>
+                    <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">Recibo</th>
                   </tr>
                 </thead>
@@ -34,6 +36,7 @@ export default async function CustomerPaymentsPage() {
                       <td className="px-3 py-3">{formatDate(payment.paymentDate)}</td>
                       <td className="px-3 py-3">{formatCurrency(payment.amountPaid)}</td>
                       <td className="px-3 py-3">{paymentMethodLabels[payment.method]}</td>
+                      <td className="px-3 py-3"><PaymentStatusBadge status={payment.status} /></td>
                       <td className="px-3 py-3">
                         <Link href={`/payments/${payment.id}`} className="text-petrol hover:underline">
                           Abrir recibo

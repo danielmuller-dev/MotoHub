@@ -1,13 +1,15 @@
 import Link from "next/link";
 import type { PaymentMethod } from "@prisma/client";
 import { CreditCard, Search, UserRound } from "lucide-react";
-import { registerPaymentAction } from "@/app/actions";
+import { registerPaymentAction, reversePaymentAction } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field, SelectField, TextArea } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
+import { PaymentStatusBadge } from "@/components/status-badge";
 import { requireCompanyRole } from "@/lib/auth";
 import { formatCurrency, formatDate, paymentMethodLabels } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -45,7 +47,8 @@ export default async function PaymentsPage({
           where: {
             id: requestedInstallmentId,
             companyId: user.companyId!,
-            status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] }
+            status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
+            contract: { status: { in: ["ACTIVE", "OVERDUE"] } }
           },
           select: {
             id: true,
@@ -69,7 +72,9 @@ export default async function PaymentsPage({
       where: {
         companyId: user.companyId!,
         status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
-        ...(selectedCustomer ? { contract: { customerId: selectedCustomer.id } } : { id: "__none__" })
+        ...(selectedCustomer
+          ? { contract: { customerId: selectedCustomer.id, status: { in: ["ACTIVE", "OVERDUE"] } } }
+          : { id: "__none__" })
       },
       orderBy: { dueDate: "asc" },
       take: 80,
@@ -264,7 +269,7 @@ export default async function PaymentsPage({
 
             {payments.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[780px] text-left text-sm">
+                <table className="w-full min-w-[980px] text-left text-sm">
                   <thead className="text-xs uppercase text-slate-500">
                     <tr>
                       <th className="px-3 py-2">Codigo</th>
@@ -272,8 +277,10 @@ export default async function PaymentsPage({
                       <th className="px-3 py-2">Contrato</th>
                       <th className="px-3 py-2">Valor</th>
                       <th className="px-3 py-2">Forma</th>
+                      <th className="px-3 py-2">Status</th>
                       <th className="px-3 py-2">Data</th>
                       <th className="px-3 py-2">Recibo</th>
+                      <th className="px-3 py-2">Acao</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -288,11 +295,28 @@ export default async function PaymentsPage({
                         </td>
                         <td className="px-3 py-3">{formatCurrency(payment.amountPaid)}</td>
                         <td className="px-3 py-3">{paymentMethodLabels[payment.method]}</td>
+                        <td className="px-3 py-3"><PaymentStatusBadge status={payment.status} /></td>
                         <td className="px-3 py-3">{formatDate(payment.paymentDate)}</td>
                         <td className="px-3 py-3">
                           <Link href={`/payments/${payment.id}`} className="text-petrol hover:underline">
                             Abrir
                           </Link>
+                        </td>
+                        <td className="px-3 py-3">
+                          {user.role === "COMPANY_ADMIN" && payment.status === "CONFIRMED" ? (
+                            <details className="rounded-md border border-red-100 bg-red-50 p-2">
+                              <summary className="cursor-pointer text-sm font-medium text-red-700">Estornar</summary>
+                              <form action={reversePaymentAction} className="mt-3 grid gap-2">
+                                <input type="hidden" name="paymentId" value={payment.id} />
+                                <input type="hidden" name="returnTo" value={selectedCustomer ? `/payments?customerId=${selectedCustomer.id}` : "/payments"} />
+                                <Field label="Motivo" name="reversalReason" required />
+                                <TextArea label="Observacao" name="reversalNotes" rows={2} />
+                                <ConfirmSubmitButton label="Confirmar" message="Confirmar estorno deste pagamento?" />
+                              </form>
+                            </details>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                       </tr>
                     ))}

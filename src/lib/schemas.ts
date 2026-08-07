@@ -159,6 +159,17 @@ export const contractSchema = z
     }
   });
 
+export const contractUpdateSchema = z.object({
+  contractId: z.string().min(1),
+  expectedEndDate: optionalDateText,
+  lateInterestAmount: moneySchema.default(0),
+  lateFeeAmount: moneySchema.default(0),
+  gracePeriodDays: z.coerce.number().int().min(0).default(0),
+  mileageLimit: z.coerce.number().int().min(0).optional().or(z.literal("")),
+  notes: optionalText,
+  customTerms: optionalText
+});
+
 export const paymentSchema = z.object({
   installmentId: z.string().min(1),
   amountPaid: moneySchema.min(0.01),
@@ -167,6 +178,52 @@ export const paymentSchema = z.object({
   reference: optionalText,
   note: optionalText,
   receiptUrl: z.string().url().optional().or(z.literal("")).transform((value) => value || undefined)
+});
+
+export const contractTerminationSchema = z.object({
+  contractId: z.string().min(1),
+  terminatedAt: dateText,
+  terminationReason: z.string().trim().min(1, "Informe o motivo do encerramento."),
+  terminationNotes: z.string().trim().min(1, "Informe a observacao do encerramento."),
+  motorcycleDisposition: z.enum(["AVAILABLE", "MAINTENANCE", "BLOCKED", "SOLD"])
+});
+
+export const contractCancellationSchema = z.object({
+  contractId: z.string().min(1),
+  cancelledAt: dateText,
+  cancellationReason: z.string().trim().min(1, "Informe o motivo do cancelamento."),
+  cancellationNotes: z.string().trim().min(1, "Informe a observacao do cancelamento.")
+});
+
+export const contractSuspensionSchema = z.object({
+  contractId: z.string().min(1),
+  suspendedAt: dateText,
+  expectedResumeAt: optionalDateText,
+  suspensionReason: z.string().trim().min(1, "Informe o motivo da suspensao."),
+  suspensionNotes: optionalText
+});
+
+export const contractResumeSchema = z.object({
+  contractId: z.string().min(1),
+  resumedAt: dateText,
+  resumeNotes: optionalText
+});
+
+export const installmentRenegotiationSchema = z.object({
+  contractId: z.string().min(1),
+  installmentId: z.string().min(1),
+  newDueDate: dateText,
+  discountAmount: moneySchema.default(0),
+  penaltyAmount: moneySchema.default(0),
+  interestAmount: moneySchema.default(0),
+  renegotiationReason: z.string().trim().min(1, "Informe o motivo da renegociacao."),
+  renegotiationNotes: optionalText
+});
+
+export const paymentReversalSchema = z.object({
+  paymentId: z.string().min(1),
+  reversalReason: z.string().trim().min(1, "Informe o motivo do estorno."),
+  reversalNotes: z.string().trim().min(1, "Informe a observacao do estorno.")
 });
 
 export const maintenanceSchema = z.object({

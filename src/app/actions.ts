@@ -16,22 +16,37 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   companySchema,
+  contractCancellationSchema,
+  contractResumeSchema,
   contractSchema,
+  contractSuspensionSchema,
+  contractTerminationSchema,
+  contractUpdateSchema,
   customerSchema,
   documentSchema,
+  installmentRenegotiationSchema,
   loginSchema,
   maintenanceSchema,
   motorcycleSchema,
   notificationSchema,
   passwordChangeSchema,
+  paymentReversalSchema,
   paymentSchema,
   settingsSchema,
   userCreateSchema
 } from "@/lib/schemas";
 import { dateFromInput, nullableString, slugify } from "@/lib/utils";
 import { appendFlashParam } from "@/lib/contract-installments";
-import { createActiveContract, cancelContract } from "@/services/contracts";
-import { registerPayment } from "@/services/payments";
+import {
+  cancelContract,
+  createActiveContract,
+  renegotiateInstallment,
+  resumeContract,
+  suspendContract,
+  terminateContract,
+  updateContractDetails
+} from "@/services/contracts";
+import { registerPayment, reversePayment } from "@/services/payments";
 import { recordAudit } from "@/services/audit";
 
 function formToObject(formData: FormData) {
@@ -55,6 +70,17 @@ function valueOrNull<T>(value: T | "" | undefined | null): T | null {
 
 function nullableNumber(value: number | "" | undefined | null) {
   return value === "" || value === undefined || value === null ? null : Number(value);
+}
+
+function checked(value: FormDataEntryValue | null) {
+  return value === "on" || value === "true" || value === "1";
+}
+
+function safeReturnPath(formData: FormData, fallback: string) {
+  const returnTo = String(formData.get("returnTo") ?? "").trim();
+  return returnTo.startsWith("/contracts/") || returnTo.startsWith("/payments")
+    ? returnTo
+    : fallback;
 }
 
 export async function loginAction(formData: FormData) {
@@ -463,16 +489,177 @@ export async function createContractAction(formData: FormData) {
   }
 }
 
-export async function cancelContractAction(formData: FormData) {
+export async function updateContractAction(formData: FormData) {
   const user = await requireCompanyRole(["COMPANY_ADMIN"]);
-  const contractId = String(formData.get("contractId") ?? "");
+  const parsed = contractUpdateSchema.safeParse(formToObject(formData));
+  const fallback = `/contracts/${String(formData.get("contractId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Edicao invalida.");
+  }
 
   try {
-    await cancelContract(user.companyId!, contractId, user.id);
+    await updateContractDetails({
+      companyId: user.companyId!,
+      contractId: parsed.data.contractId,
+      userId: user.id,
+      expectedEndDate: parsed.data.expectedEndDate ? dateFromInput(parsed.data.expectedEndDate) : null,
+      lateInterestAmount: parsed.data.lateInterestAmount,
+      lateFeeAmount: parsed.data.lateFeeAmount,
+      gracePeriodDays: parsed.data.gracePeriodDays,
+      mileageLimit: nullableNumber(parsed.data.mileageLimit),
+      notes: parsed.data.notes,
+      customTerms: parsed.data.customTerms
+    });
     revalidatePath("/contracts");
-    redirectWith("/contracts", "success", "Contrato cancelado.");
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    redirectWith(returnPath, "success", "Contrato atualizado.");
   } catch (error) {
-    redirectWith("/contracts", "error", messageFromError(error));
+    redirectWith(returnPath, "error", messageFromError(error));
+  }
+}
+
+export async function cancelContractAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN"]);
+  const parsed = contractCancellationSchema.safeParse(formToObject(formData));
+  const fallback = `/contracts/${String(formData.get("contractId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Cancelamento invalido.");
+  }
+
+  try {
+    await cancelContract({
+      companyId: user.companyId!,
+      contractId: parsed.data.contractId,
+      userId: user.id,
+      cancelledAt: dateFromInput(parsed.data.cancelledAt),
+      reason: parsed.data.cancellationReason,
+      notes: parsed.data.cancellationNotes,
+      cancelFutureInstallments: checked(formData.get("cancelFutureInstallments")),
+      releaseMotorcycle: checked(formData.get("releaseMotorcycle"))
+    });
+    revalidatePath("/contracts");
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    redirectWith(returnPath, "success", "Contrato cancelado.");
+  } catch (error) {
+    redirectWith(returnPath, "error", messageFromError(error));
+  }
+}
+
+export async function terminateContractAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN"]);
+  const parsed = contractTerminationSchema.safeParse(formToObject(formData));
+  const fallback = `/contracts/${String(formData.get("contractId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Encerramento invalido.");
+  }
+
+  try {
+    await terminateContract({
+      companyId: user.companyId!,
+      contractId: parsed.data.contractId,
+      userId: user.id,
+      terminatedAt: dateFromInput(parsed.data.terminatedAt),
+      reason: parsed.data.terminationReason,
+      notes: parsed.data.terminationNotes,
+      cancelFutureInstallments: checked(formData.get("cancelFutureInstallments")),
+      motorcycleDisposition: parsed.data.motorcycleDisposition
+    });
+    revalidatePath("/contracts");
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    redirectWith(returnPath, "success", "Contrato encerrado.");
+  } catch (error) {
+    redirectWith(returnPath, "error", messageFromError(error));
+  }
+}
+
+export async function suspendContractAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN"]);
+  const parsed = contractSuspensionSchema.safeParse(formToObject(formData));
+  const fallback = `/contracts/${String(formData.get("contractId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Suspensao invalida.");
+  }
+
+  try {
+    await suspendContract({
+      companyId: user.companyId!,
+      contractId: parsed.data.contractId,
+      userId: user.id,
+      suspendedAt: dateFromInput(parsed.data.suspendedAt),
+      expectedResumeAt: parsed.data.expectedResumeAt ? dateFromInput(parsed.data.expectedResumeAt) : null,
+      reason: parsed.data.suspensionReason,
+      notes: parsed.data.suspensionNotes,
+      freezeDueDates: checked(formData.get("freezeDueDates"))
+    });
+    revalidatePath("/contracts");
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    redirectWith(returnPath, "success", "Contrato suspenso.");
+  } catch (error) {
+    redirectWith(returnPath, "error", messageFromError(error));
+  }
+}
+
+export async function resumeContractAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN"]);
+  const parsed = contractResumeSchema.safeParse(formToObject(formData));
+  const fallback = `/contracts/${String(formData.get("contractId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Retomada invalida.");
+  }
+
+  try {
+    await resumeContract({
+      companyId: user.companyId!,
+      contractId: parsed.data.contractId,
+      userId: user.id,
+      resumedAt: dateFromInput(parsed.data.resumedAt),
+      notes: parsed.data.resumeNotes
+    });
+    revalidatePath("/contracts");
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    redirectWith(returnPath, "success", "Contrato retomado.");
+  } catch (error) {
+    redirectWith(returnPath, "error", messageFromError(error));
+  }
+}
+
+export async function renegotiateInstallmentAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN", "EMPLOYEE"]);
+  const parsed = installmentRenegotiationSchema.safeParse(formToObject(formData));
+  const fallback = `/contracts/${String(formData.get("contractId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Renegociacao invalida.");
+  }
+
+  try {
+    await renegotiateInstallment({
+      companyId: user.companyId!,
+      contractId: parsed.data.contractId,
+      installmentId: parsed.data.installmentId,
+      userId: user.id,
+      newDueDate: dateFromInput(parsed.data.newDueDate),
+      discountAmount: parsed.data.discountAmount,
+      penaltyAmount: parsed.data.penaltyAmount,
+      interestAmount: parsed.data.interestAmount,
+      reason: parsed.data.renegotiationReason,
+      notes: parsed.data.renegotiationNotes
+    });
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    redirectWith(returnPath, "success", "Parcela renegociada.");
+  } catch (error) {
+    redirectWith(returnPath, "error", messageFromError(error));
   }
 }
 
@@ -507,6 +694,34 @@ export async function registerPaymentAction(formData: FormData) {
     redirectWith(`/payments/${payment.id}`, "success", "Pagamento registrado.");
   } catch (error) {
     redirectWith(paymentReturnPath, "error", messageFromError(error));
+  }
+}
+
+export async function reversePaymentAction(formData: FormData) {
+  const user = await requireCompanyRole(["COMPANY_ADMIN"]);
+  const parsed = paymentReversalSchema.safeParse(formToObject(formData));
+  const fallback = `/payments/${String(formData.get("paymentId") ?? "")}`;
+  const returnPath = safeReturnPath(formData, fallback);
+
+  if (!parsed.success) {
+    redirectWith(returnPath, "error", parsed.error.issues[0]?.message ?? "Estorno invalido.");
+  }
+
+  try {
+    const payment = await reversePayment({
+      companyId: user.companyId!,
+      paymentId: parsed.data.paymentId,
+      reversedByUserId: user.id,
+      reason: parsed.data.reversalReason,
+      notes: parsed.data.reversalNotes
+    });
+
+    revalidatePath("/payments");
+    revalidatePath(`/payments/${payment.id}`);
+    revalidatePath(`/contracts/${payment.contractId}`);
+    redirectWith(returnPath, "success", "Pagamento estornado.");
+  } catch (error) {
+    redirectWith(returnPath, "error", messageFromError(error));
   }
 }
 

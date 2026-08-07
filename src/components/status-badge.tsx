@@ -1,9 +1,10 @@
-import { ContractStatus, InstallmentStatus, MotorcycleStatus } from "@prisma/client";
+import { ContractStatus, InstallmentStatus, MotorcycleStatus, PaymentStatus } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import {
   contractStatusLabels,
   installmentStatusLabels,
-  motorcycleStatusLabels
+  motorcycleStatusLabels,
+  paymentStatusLabels
 } from "@/lib/format";
 
 export function MotorcycleStatusBadge({ status }: { status: MotorcycleStatus }) {
@@ -29,9 +30,11 @@ export function ContractStatusBadge({ status }: { status: ContractStatus }) {
         ? "red"
         : status === "COMPLETED"
           ? "blue"
-          : status === "DRAFT"
-            ? "neutral"
-            : "yellow";
+          : status === "TERMINATED"
+            ? "dark"
+            : status === "DRAFT"
+              ? "neutral"
+              : "yellow";
 
   return <Badge tone={tone}>{contractStatusLabels[status]}</Badge>;
 }
@@ -47,4 +50,12 @@ export function InstallmentStatusBadge({ status }: { status: InstallmentStatus }
           : "neutral";
 
   return <Badge tone={tone}>{installmentStatusLabels[status]}</Badge>;
+}
+
+export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
+  return (
+    <Badge tone={status === "REVERSED" ? "red" : "green"}>
+      {paymentStatusLabels[status]}
+    </Badge>
+  );
 }

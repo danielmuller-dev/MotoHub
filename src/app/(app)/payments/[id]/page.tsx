@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { reversePaymentAction } from "@/app/actions";
+import { PaymentStatusBadge } from "@/components/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit";
+import { Field, TextArea } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { PrintButton } from "@/components/ui/print-button";
 import { requireUser } from "@/lib/auth";
@@ -24,7 +28,8 @@ export default async function PaymentReceiptPage({ params }: { params: Promise<{
         include: { motorcycle: true }
       },
       installment: true,
-      registeredBy: true
+      registeredBy: true,
+      reversedBy: true
     }
   });
 
@@ -58,8 +63,19 @@ export default async function PaymentReceiptPage({ params }: { params: Promise<{
             <Info label="Parcela" value={payment.installment ? String(payment.installment.number) : "-"} />
             <Info label="Valor" value={formatCurrency(payment.amountPaid)} />
             <Info label="Forma de pagamento" value={paymentMethodLabels[payment.method]} />
+            <div>
+              <p className="text-xs font-medium uppercase text-slate-400">Status</p>
+              <div className="mt-1"><PaymentStatusBadge status={payment.status} /></div>
+            </div>
             <Info label="Referencia" value={payment.reference} />
             <Info label="Responsavel" value={payment.registeredBy?.name} />
+            {payment.status === "REVERSED" ? (
+              <>
+                <Info label="Estornado em" value={formatDate(payment.reversedAt)} />
+                <Info label="Estornado por" value={payment.reversedBy?.name} />
+                <Info label="Motivo do estorno" value={payment.reversalReason} />
+              </>
+            ) : null}
           </div>
 
           {payment.note ? (
@@ -73,6 +89,19 @@ export default async function PaymentReceiptPage({ params }: { params: Promise<{
             <div className="w-full border-t border-slate-300 pt-2">Responsavel pela locadora</div>
             <div className="w-full border-t border-slate-300 pt-2">Cliente</div>
           </div>
+
+          {user.role === "COMPANY_ADMIN" && payment.status === "CONFIRMED" ? (
+            <details className="no-print mt-8 rounded-md border border-red-100 bg-red-50 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-red-700">Estornar pagamento</summary>
+              <form action={reversePaymentAction} className="mt-4 grid gap-3">
+                <input type="hidden" name="paymentId" value={payment.id} />
+                <input type="hidden" name="returnTo" value={`/payments/${payment.id}`} />
+                <Field label="Motivo" name="reversalReason" required />
+                <TextArea label="Observacao obrigatoria" name="reversalNotes" rows={3} />
+                <ConfirmSubmitButton label="Confirmar estorno" message="Confirmar estorno deste pagamento e reabrir o saldo da parcela?" />
+              </form>
+            </details>
+          ) : null}
 
           <div className="no-print mt-6">
             <Link href="/payments" className="text-sm font-medium text-petrol hover:underline">

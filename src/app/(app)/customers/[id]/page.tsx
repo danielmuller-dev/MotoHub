@@ -7,6 +7,7 @@ import { ProgressBar } from "@/components/ui/progress";
 import { ContractStatusBadge, InstallmentStatusBadge } from "@/components/status-badge";
 import { requireCompanyRole } from "@/lib/auth";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { sumConfirmedPayments } from "@/lib/payment-totals";
 import { prisma } from "@/lib/prisma";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -39,12 +40,9 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
   const activeContract = customer.contracts.find((contract) =>
     ["ACTIVE", "OVERDUE", "SUSPENDED"].includes(contract.status)
   );
-  const totalPaid = customer.contracts
-    .flatMap((contract) => contract.payments)
-    .reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0);
+  const totalPaid = sumConfirmedPayments(customer.contracts.flatMap((contract) => contract.payments));
   const currentTotal = activeContract?.totalAmount.toNumber() ?? 0;
-  const currentPaid =
-    activeContract?.payments.reduce((sum, payment) => sum + payment.amountPaid.toNumber(), 0) ?? 0;
+  const currentPaid = activeContract ? sumConfirmedPayments(activeContract.payments) : 0;
   const progress = currentTotal > 0 ? (currentPaid / currentTotal) * 100 : 0;
 
   return (

@@ -1,6 +1,13 @@
 import { Prisma } from "@prisma/client";
+import {
+  installmentStatusFromBalance,
+  isFinalContractStatus
+} from "@/lib/contract-lifecycle";
+import { normalizeDateOnly } from "@/lib/due-dates";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/services/audit";
+import { refreshContractFinancialState } from "@/services/contracts";
+import { recordContractEvent } from "@/services/contract-events";
 import { installmentBalance } from "@/services/installments";
 
 export type RegisterPaymentInput = {
@@ -15,8 +22,24 @@ export type RegisterPaymentInput = {
   registeredByUserId: string;
 };
 
+export type ReversePaymentInput = {
+  companyId: string;
+  paymentId: string;
+  reversedByUserId: string;
+  reason: string;
+  notes: string;
+};
+
 function createPaymentCode() {
   return `PG-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+}
+
+function requireText(value: string, label: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`${label} obrigatorio.`);
+  }
+  return trimmed;
 }
 
 export async function registerPayment(input: RegisterPaymentInput) {
@@ -37,6 +60,10 @@ export async function registerPayment(input: RegisterPaymentInput) {
 
     if (!installment) {
       throw new Error("Parcela nao encontrada para esta empresa.");
+    }
+
+    if (isFinalContractStatus(installment.contract.status) || installment.contract.status === "SUSPENDED") {
+      throw new Error("Este contrato nao aceita novos pagamentos.");
     }
 
     if (installment.status === "CANCELLED" || installment.status === "PAID") {
@@ -79,32 +106,12 @@ export async function registerPayment(input: RegisterPaymentInput) {
       }
     });
 
-    const openInstallments = await tx.installment.count({
-      where: {
-        contractId: installment.contractId,
-        status: {
-          not: "PAID"
-        }
-      }
+    await refreshContractFinancialState(tx, {
+      companyId: input.companyId,
+      contractId: installment.contractId,
+      userId: input.registeredByUserId,
+      today: input.paymentDate
     });
-
-    if (openInstallments === 0) {
-      await tx.contract.update({
-        where: { id: installment.contractId },
-        data: {
-          status: "COMPLETED",
-          completedAt: new Date()
-        }
-      });
-
-      await tx.motorcycle.update({
-        where: { id: installment.contract.motorcycleId },
-        data:
-          installment.contract.type === "RENT_TO_OWN"
-            ? { status: "SOLD" }
-            : { status: "AVAILABLE", currentCustomerId: null }
-      });
-    }
 
     await recordAudit(tx, {
       companyId: input.companyId,
@@ -123,6 +130,128 @@ export async function registerPayment(input: RegisterPaymentInput) {
       }
     });
 
+    await recordContractEvent(tx, {
+      companyId: input.companyId,
+      contractId: installment.contractId,
+      userId: input.registeredByUserId,
+      type: paidInFull ? "PAYMENT_REGISTERED" : "PAYMENT_PARTIAL",
+      title: paidInFull ? "Pagamento registrado" : "Pagamento parcial registrado",
+      description: `Pagamento ${payment.code} de ${amount.toString()} registrado na parcela ${installment.number}.`,
+      metadata: {
+        paymentId: payment.id,
+        installmentId: installment.id,
+        installmentNumber: installment.number,
+        amountPaid: amount.toString(),
+        paymentDate: input.paymentDate.toISOString(),
+        installmentStatus: updatedInstallment.status
+      }
+    });
+
     return payment;
+  });
+}
+
+export async function reversePayment(input: ReversePaymentInput) {
+  const reason = requireText(input.reason, "Motivo");
+  const notes = requireText(input.notes, "Observacao");
+
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findFirst({
+      where: {
+        id: input.paymentId,
+        companyId: input.companyId
+      },
+      include: {
+        installment: true,
+        contract: true
+      }
+    });
+
+    if (!payment) {
+      throw new Error("Pagamento nao encontrado para esta empresa.");
+    }
+
+    if (payment.status === "REVERSED") {
+      throw new Error("Pagamento ja foi estornado.");
+    }
+
+    const reversed = await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "REVERSED",
+        reversedAt: new Date(),
+        reversedByUserId: input.reversedByUserId,
+        reversalReason: reason,
+        reversalNotes: notes
+      }
+    });
+
+    if (payment.installment) {
+      let nextPaidAmount = payment.installment.paidAmount
+        .minus(payment.amountPaid)
+        .toDecimalPlaces(2);
+
+      if (nextPaidAmount.lt(0)) {
+        nextPaidAmount = new Prisma.Decimal(0);
+      }
+
+      const today = normalizeDateOnly(new Date());
+      const nextStatus = installmentStatusFromBalance({
+        dueDate: payment.installment.dueDate,
+        paidAmount: nextPaidAmount.toNumber(),
+        finalAmount: payment.installment.finalAmount.toNumber(),
+        today
+      });
+
+      await tx.installment.update({
+        where: { id: payment.installment.id },
+        data: {
+          paidAmount: nextPaidAmount,
+          paymentDate: nextStatus === "PAID" ? payment.installment.paymentDate : null,
+          status: nextStatus
+        }
+      });
+    }
+
+    await refreshContractFinancialState(tx, {
+      companyId: input.companyId,
+      contractId: payment.contractId,
+      userId: input.reversedByUserId
+    });
+
+    await recordAudit(tx, {
+      companyId: input.companyId,
+      userId: input.reversedByUserId,
+      action: "PAYMENT_REVERSED",
+      entity: "Payment",
+      entityId: payment.id,
+      description: `Pagamento ${payment.code} estornado.`,
+      before: {
+        status: payment.status,
+        amountPaid: payment.amountPaid.toString()
+      },
+      after: {
+        status: reversed.status,
+        reason
+      }
+    });
+
+    await recordContractEvent(tx, {
+      companyId: input.companyId,
+      contractId: payment.contractId,
+      userId: input.reversedByUserId,
+      type: "PAYMENT_REVERSED",
+      title: "Pagamento estornado",
+      description: `Pagamento ${payment.code} estornado por ${reason}.`,
+      metadata: {
+        paymentId: payment.id,
+        installmentId: payment.installmentId,
+        amountPaid: payment.amountPaid.toString(),
+        reason,
+        contractWasCompleted: payment.contract.status === "COMPLETED"
+      }
+    });
+
+    return reversed;
   });
 }

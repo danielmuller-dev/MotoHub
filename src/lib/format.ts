@@ -11,6 +11,7 @@ import type {
   NotificationPriority,
   NotificationType,
   PaymentMethod,
+  PaymentStatus,
   UserRole,
   UserStatus,
   WeekDay
@@ -34,6 +35,15 @@ export const shortDateFormatter = new Intl.DateTimeFormat("pt-BR", {
   month: "short"
 });
 
+export const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "UTC",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit"
+});
+
 export function formatCurrency(value: number | string | { toNumber(): number } | null | undefined) {
   if (value === null || value === undefined) {
     return currencyFormatter.format(0);
@@ -49,6 +59,13 @@ export function formatDate(value: Date | string | null | undefined) {
     return "-";
   }
   return dateFormatter.format(new Date(value));
+}
+
+export function formatDateTime(value: Date | string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+  return dateTimeFormatter.format(new Date(value));
 }
 
 export function formatDateInput(value: Date | string | null | undefined) {
@@ -101,7 +118,8 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   OVERDUE: "Atrasado",
   SUSPENDED: "Suspenso",
   COMPLETED: "Concluido",
-  CANCELLED: "Cancelado"
+  CANCELLED: "Cancelado",
+  TERMINATED: "Encerrado"
 };
 
 export const installmentStatusLabels: Record<InstallmentStatus, string> = {
@@ -140,6 +158,11 @@ export const paymentMethodLabels: Record<PaymentMethod, string> = {
   CARD: "Cartao",
   BOLETO: "Boleto",
   OTHER: "Outro"
+};
+
+export const paymentStatusLabels: Record<PaymentStatus, string> = {
+  CONFIRMED: "Confirmado",
+  REVERSED: "Estornado"
 };
 
 export const maintenanceTypeLabels: Record<MaintenanceType, string> = {

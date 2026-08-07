@@ -29,6 +29,7 @@ import {
   userCreateSchema
 } from "@/lib/schemas";
 import { dateFromInput, nullableString, slugify } from "@/lib/utils";
+import { appendFlashParam } from "@/lib/contract-installments";
 import { createActiveContract, cancelContract } from "@/services/contracts";
 import { registerPayment } from "@/services/payments";
 import { recordAudit } from "@/services/audit";
@@ -45,7 +46,7 @@ function messageFromError(error: unknown) {
 }
 
 function redirectWith(path: string, key: "success" | "error", message: string): never {
-  redirect(`${path}?${key}=${encodeURIComponent(message)}`);
+  redirect(appendFlashParam(path, key, message));
 }
 
 function valueOrNull<T>(value: T | "" | undefined | null): T | null {
@@ -478,9 +479,11 @@ export async function cancelContractAction(formData: FormData) {
 export async function registerPaymentAction(formData: FormData) {
   const user = await requireCompanyRole();
   const parsed = paymentSchema.safeParse(formToObject(formData));
+  const returnTo = String(formData.get("returnTo") ?? "").trim();
+  const paymentReturnPath = returnTo.startsWith("/contracts/") ? returnTo : "/payments";
 
   if (!parsed.success) {
-    redirectWith("/payments", "error", parsed.error.issues[0]?.message ?? "Pagamento invalido.");
+    redirectWith(paymentReturnPath, "error", parsed.error.issues[0]?.message ?? "Pagamento invalido.");
   }
 
   try {
@@ -497,9 +500,13 @@ export async function registerPaymentAction(formData: FormData) {
     });
 
     revalidatePath("/payments");
+    if (paymentReturnPath !== "/payments") {
+      revalidatePath(paymentReturnPath.split("?")[0]);
+      redirectWith(paymentReturnPath, "success", "Pagamento registrado.");
+    }
     redirectWith(`/payments/${payment.id}`, "success", "Pagamento registrado.");
   } catch (error) {
-    redirectWith("/payments", "error", messageFromError(error));
+    redirectWith(paymentReturnPath, "error", messageFromError(error));
   }
 }
 

@@ -5,7 +5,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { CompanyStatus, UserRole, UserStatus } from "@prisma/client";
+import { CompanyLicensePlan, CompanyStatus, UserRole, UserStatus } from "@prisma/client";
+import { canCompanyAccessSystem } from "@/lib/company-license";
 import { SESSION_COOKIE_NAME } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
 
@@ -33,6 +34,9 @@ export type CurrentUser = {
     tradeName: string | null;
     slug: string;
     status: CompanyStatus;
+    licensePlan: CompanyLicensePlan;
+    licenseStartsAt: Date;
+    licenseExpiresAt: Date | null;
   } | null;
 };
 
@@ -154,7 +158,10 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
           legalName: true,
           tradeName: true,
           slug: true,
-          status: true
+          status: true,
+          licensePlan: true,
+          licenseStartsAt: true,
+          licenseExpiresAt: true
         }
       }
     }
@@ -164,7 +171,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     return null;
   }
 
-  if (user.company && user.company.status !== "ACTIVE" && user.role !== "SUPER_ADMIN") {
+  if (user.company && user.role !== "SUPER_ADMIN" && !canCompanyAccessSystem(user.company).allowed) {
     return null;
   }
 

@@ -26,6 +26,14 @@ enum CompanyStatus {
   BLOCKED
 }
 
+enum CompanyLicensePlan {
+  FREE_30
+  THIRTY_DAYS
+  NINETY_DAYS
+  ANNUAL
+  LIFETIME
+}
+
 enum CustomerStatus {
   ACTIVE
   INACTIVE
@@ -277,7 +285,7 @@ enum NotificationStatus {
 }
 
 model Company {
-  id                 String        @id @default(cuid())
+  id                 String             @id @default(cuid())
   legalName          String
   tradeName          String?
   document           String?
@@ -289,12 +297,16 @@ model Company {
   state              String?
   zipCode            String?
   logoUrl            String?
-  slug               String        @unique
-  status             CompanyStatus @default(ACTIVE)
-  subscriptionStatus String?       @default("trial")
+  slug               String             @unique
+  status             CompanyStatus      @default(ACTIVE)
+  subscriptionStatus String?            @default("trial")
   trialEndsAt        DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  licensePlan        CompanyLicensePlan @default(FREE_30)
+  licenseStartsAt    DateTime           @default(now())
+  licenseExpiresAt   DateTime?
+  licenseUpdatedAt   DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
   deletedAt          DateTime?
 
   settings              CompanySettings?
@@ -318,6 +330,8 @@ model Company {
   additionalCharges     AdditionalCharge[]
 
   @@index([status])
+  @@index([licensePlan])
+  @@index([licenseExpiresAt])
   @@index([createdAt])
 }
 

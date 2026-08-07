@@ -1,5 +1,6 @@
 import {
   BillingFrequency,
+  CompanyLicensePlan,
   CompanyStatus,
   ContractType,
   DocumentType,
@@ -51,7 +52,15 @@ export const companySchema = z.object({
   zipCode: optionalText,
   logoUrl: z.string().url().optional().or(z.literal("")).transform((value) => value || undefined),
   slug: z.string().min(2).regex(/^[a-z0-9-]+$/, "Use apenas letras minusculas, numeros e hifens."),
-  status: z.nativeEnum(CompanyStatus).default("ACTIVE")
+  status: z.nativeEnum(CompanyStatus).default("ACTIVE"),
+  licensePlan: z.nativeEnum(CompanyLicensePlan).default("FREE_30")
+});
+
+export const companyLicenseSchema = z.object({
+  companyId: z.string().min(1),
+  status: z.nativeEnum(CompanyStatus),
+  licensePlan: z.nativeEnum(CompanyLicensePlan),
+  licenseExpiresAt: optionalDateText
 });
 
 export const userCreateSchema = z.object({

@@ -1,8 +1,10 @@
+import type { CompanyLicensePlan, CompanyStatus } from "@prisma/client";
 import { Plus, UserPlus } from "lucide-react";
 import {
   createCompanyAction,
   createCompanyAdminAction,
-  toggleCompanyStatusAction
+  toggleCompanyStatusAction,
+  updateCompanyLicenseAction
 } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,8 +13,18 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field, SelectField } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireRole } from "@/lib/auth";
-import { companyStatusLabels, formatDate } from "@/lib/format";
+import { daysUntilLicenseExpiration, getCompanyLicenseState } from "@/lib/company-license";
+import {
+  companyLicensePlanLabels,
+  companyLicenseStateLabels,
+  companyStatusLabels,
+  formatDate,
+  formatDateInput
+} from "@/lib/format";
 import { prisma } from "@/lib/prisma";
+
+const licensePlans = Object.keys(companyLicensePlanLabels) as CompanyLicensePlan[];
+const companyStatuses = Object.keys(companyStatusLabels) as CompanyStatus[];
 
 export default async function CompaniesPage() {
   await requireRole(["SUPER_ADMIN"]);
@@ -66,6 +78,13 @@ export default async function CompaniesPage() {
                 <option value="TRIAL">Teste</option>
                 <option value="INACTIVE">Inativa</option>
               </SelectField>
+              <SelectField label="Licenca" name="licensePlan" defaultValue="FREE_30">
+                {licensePlans.map((plan) => (
+                  <option key={plan} value={plan}>
+                    {companyLicensePlanLabels[plan]}
+                  </option>
+                ))}
+              </SelectField>
               <Button type="submit">
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 Cadastrar empresa
@@ -89,17 +108,19 @@ export default async function CompaniesPage() {
                           {company.city || "Cidade nao informada"} - {company.state || "UF"} | {company.slug}
                         </p>
                       </div>
-                      <Badge tone={company.status === "ACTIVE" ? "green" : "red"}>
+                      <Badge tone={company.status === "ACTIVE" ? "green" : company.status === "TRIAL" ? "blue" : "red"}>
                         {companyStatusLabels[company.status]}
                       </Badge>
                     </div>
-                    <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+                    <div className="mt-4 grid gap-3 text-sm sm:grid-cols-5">
                       <span>{company._count.users} usuarios</span>
                       <span>{company._count.customers} clientes</span>
                       <span>{company._count.motorcycles} motos</span>
+                      <LicenseSummary company={company} />
                       <span>{formatDate(company.createdAt)}</span>
                     </div>
-                    <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 lg:grid-cols-[1fr_auto]">
+                    <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4">
+                      <LicenseEditForm company={company} />
                       <form action={createCompanyAdminAction} className="grid gap-3 sm:grid-cols-4">
                         <input type="hidden" name="companyId" value={company.id} />
                         <Field label="Nome do admin" name="name" required />
@@ -136,5 +157,82 @@ export default async function CompaniesPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+function licenseTone(state: ReturnType<typeof getCompanyLicenseState>) {
+  if (state === "ACTIVE" || state === "LIFETIME") {
+    return "green";
+  }
+  if (state === "TRIAL") {
+    return "blue";
+  }
+  if (state === "EXPIRED" || state === "BLOCKED") {
+    return "red";
+  }
+  return "neutral";
+}
+
+function LicenseSummary({
+  company
+}: {
+  company: {
+    status: CompanyStatus;
+    licensePlan: CompanyLicensePlan;
+    licenseExpiresAt: Date | null;
+  };
+}) {
+  const state = getCompanyLicenseState(company);
+  const days = daysUntilLicenseExpiration(company);
+
+  return (
+    <span className="grid gap-1">
+      <span className="flex flex-wrap items-center gap-2">
+        <Badge tone={licenseTone(state)}>{companyLicenseStateLabels[state]}</Badge>
+        <span>{companyLicensePlanLabels[company.licensePlan]}</span>
+      </span>
+      <span className="text-xs text-slate-500">
+        {company.licensePlan === "LIFETIME"
+          ? "Sem vencimento"
+          : `${formatDate(company.licenseExpiresAt)}${days !== null ? ` | ${Math.max(days, 0)} dia(s)` : ""}`}
+      </span>
+    </span>
+  );
+}
+
+function LicenseEditForm({
+  company
+}: {
+  company: {
+    id: string;
+    status: CompanyStatus;
+    licensePlan: CompanyLicensePlan;
+    licenseExpiresAt: Date | null;
+  };
+}) {
+  return (
+    <form action={updateCompanyLicenseAction} className="grid gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 lg:grid-cols-[180px_180px_180px_auto]">
+      <input type="hidden" name="companyId" value={company.id} />
+      <SelectField label="Status" name="status" defaultValue={company.status}>
+        {companyStatuses.map((status) => (
+          <option key={status} value={status}>
+            {companyStatusLabels[status]}
+          </option>
+        ))}
+      </SelectField>
+      <SelectField label="Licenca" name="licensePlan" defaultValue={company.licensePlan}>
+        {licensePlans.map((plan) => (
+          <option key={plan} value={plan}>
+            {companyLicensePlanLabels[plan]}
+          </option>
+        ))}
+      </SelectField>
+      <Field label="Valida ate" name="licenseExpiresAt" type="date" defaultValue={formatDateInput(company.licenseExpiresAt)} />
+      <div className="flex items-end">
+        <Button type="submit" variant="secondary" className="w-full">
+          Atualizar licenca
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -1,5 +1,6 @@
 import type {
   BillingFrequency,
+  CompanyLicensePlan,
   CompanyStatus,
   ContractStatus,
   ContractType,
@@ -108,6 +109,23 @@ export const companyStatusLabels: Record<CompanyStatus, string> = {
   TRIAL: "Teste",
   BLOCKED: "Bloqueada"
 };
+
+export const companyLicensePlanLabels: Record<CompanyLicensePlan, string> = {
+  FREE_30: "30 dias free",
+  THIRTY_DAYS: "30 dias",
+  NINETY_DAYS: "90 dias",
+  ANNUAL: "Anual",
+  LIFETIME: "Vitalicio"
+};
+
+export const companyLicenseStateLabels = {
+  ACTIVE: "Ativa",
+  TRIAL: "Teste gratis",
+  EXPIRED: "Vencida",
+  LIFETIME: "Vitalicia",
+  INACTIVE: "Inativa",
+  BLOCKED: "Bloqueada"
+} as const;
 
 export const customerStatusLabels = {
   ACTIVE: "Ativo",

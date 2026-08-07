@@ -13,8 +13,15 @@ import {
   setSessionCookie,
   verifyPassword
 } from "@/lib/auth";
+import {
+  canCompanyAccessSystem,
+  getCompanyLicenseEndDate,
+  normalizeLicenseExpirationForInput,
+  subscriptionStatusForPlan
+} from "@/lib/company-license";
 import { prisma } from "@/lib/prisma";
 import {
+  companyLicenseSchema,
   companySchema,
   contractCancellationSchema,
   contractResumeSchema,
@@ -194,7 +201,13 @@ export async function loginAction(formData: FormData) {
     where: { email: parsed.data.email },
     include: {
       company: {
-        select: { id: true, status: true }
+        select: {
+          id: true,
+          status: true,
+          licensePlan: true,
+          licenseStartsAt: true,
+          licenseExpiresAt: true
+        }
       }
     }
   });
@@ -203,8 +216,11 @@ export async function loginAction(formData: FormData) {
     redirectWith("/login", "error", "E-mail ou senha invalidos.");
   }
 
-  if (user.company && user.company.status !== "ACTIVE" && user.role !== "SUPER_ADMIN") {
-    redirectWith("/login", "error", "Empresa inativa. Fale com o administrador.");
+  if (user.company && user.role !== "SUPER_ADMIN") {
+    const access = canCompanyAccessSystem(user.company);
+    if (!access.allowed) {
+      redirectWith("/login", "error", access.reason ?? "Acesso da empresa indisponivel.");
+    }
   }
 
   const validPassword = await verifyPassword(parsed.data.password, user.passwordHash);
@@ -237,9 +253,20 @@ export async function createCompanyAction(formData: FormData) {
   }
 
   try {
+    const licenseStartsAt = new Date();
+    const licenseExpiresAt = getCompanyLicenseEndDate(parsed.data.licensePlan, licenseStartsAt);
+    const status = parsed.data.licensePlan === "FREE_30" && parsed.data.status === "ACTIVE"
+      ? "TRIAL"
+      : parsed.data.status;
     const company = await prisma.company.create({
       data: {
         ...parsed.data,
+        status,
+        licenseStartsAt,
+        licenseExpiresAt,
+        licenseUpdatedAt: licenseStartsAt,
+        subscriptionStatus: subscriptionStatusForPlan(parsed.data.licensePlan, licenseExpiresAt, licenseStartsAt),
+        trialEndsAt: parsed.data.licensePlan === "FREE_30" ? licenseExpiresAt : null,
         settings: {
           create: {}
         }
@@ -253,7 +280,13 @@ export async function createCompanyAction(formData: FormData) {
       entity: "Company",
       entityId: company.id,
       description: `Empresa ${company.legalName} cadastrada.`,
-      after: { legalName: company.legalName, slug: company.slug }
+      after: {
+        legalName: company.legalName,
+        slug: company.slug,
+        status: company.status,
+        licensePlan: company.licensePlan,
+        licenseExpiresAt: company.licenseExpiresAt
+      }
     });
 
     revalidatePath("/superadmin/companies");
@@ -286,6 +319,62 @@ export async function toggleCompanyStatusAction(formData: FormData) {
 
     revalidatePath("/superadmin/companies");
     redirectWith("/superadmin/companies", "success", "Status da empresa atualizado.");
+  } catch (error) {
+    redirectWith("/superadmin/companies", "error", messageFromError(error));
+  }
+}
+
+export async function updateCompanyLicenseAction(formData: FormData) {
+  const user = await requireRole(["SUPER_ADMIN"]);
+  const parsed = companyLicenseSchema.safeParse(formToObject(formData));
+
+  if (!parsed.success) {
+    redirectWith("/superadmin/companies", "error", parsed.error.issues[0]?.message ?? "Licenca invalida.");
+  }
+
+  try {
+    const licenseStartsAt = new Date();
+    const customExpiresAt = parsed.data.licenseExpiresAt
+      ? normalizeLicenseExpirationForInput(dateFromInput(parsed.data.licenseExpiresAt))
+      : null;
+    const licenseExpiresAt = getCompanyLicenseEndDate(
+      parsed.data.licensePlan,
+      licenseStartsAt,
+      customExpiresAt
+    );
+    const status = parsed.data.licensePlan === "FREE_30" && parsed.data.status === "ACTIVE"
+      ? "TRIAL"
+      : parsed.data.status;
+
+    const company = await prisma.company.update({
+      where: { id: parsed.data.companyId },
+      data: {
+        status,
+        licensePlan: parsed.data.licensePlan,
+        licenseStartsAt,
+        licenseExpiresAt,
+        licenseUpdatedAt: licenseStartsAt,
+        subscriptionStatus: subscriptionStatusForPlan(parsed.data.licensePlan, licenseExpiresAt, licenseStartsAt),
+        trialEndsAt: parsed.data.licensePlan === "FREE_30" ? licenseExpiresAt : null
+      }
+    });
+
+    await recordAudit(prisma, {
+      companyId: company.id,
+      userId: user.id,
+      action: "COMPANY_LICENSE_UPDATED",
+      entity: "Company",
+      entityId: company.id,
+      description: `Licenca da empresa ${company.legalName} atualizada.`,
+      after: {
+        status: company.status,
+        licensePlan: company.licensePlan,
+        licenseExpiresAt: company.licenseExpiresAt
+      }
+    });
+
+    revalidatePath("/superadmin/companies");
+    redirectWith("/superadmin/companies", "success", "Licenca da empresa atualizada.");
   } catch (error) {
     redirectWith("/superadmin/companies", "error", messageFromError(error));
   }
